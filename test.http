@@ -1,0 +1,10 @@
+GET https://httpbin.org/get
+###
+
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{
+  "username":"vaish",
+  "role":"admin"
+}

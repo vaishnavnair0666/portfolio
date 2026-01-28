@@ -1,6 +1,6 @@
-import { DATABASE_URL } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { Pool } from 'pg';
-
 export const pool = new Pool({
-  connectionString: DATABASE_URL
+  connectionString: env.DATABASE_URL,
+  connectionTimeoutMillis: 5000
 });
