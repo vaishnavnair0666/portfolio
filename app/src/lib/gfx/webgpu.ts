@@ -48,7 +48,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
   });
 
   const uniformBuffer = device.createBuffer({
-    size: 4 * 4,
+    size: 12 * 4,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
 
@@ -95,6 +95,13 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
     uniforms[2] = canvas.height;
     uniforms[3] = window.devicePixelRatio || 1;
 
+    uniforms[4] = 0.4;  // vignette_inner
+    uniforms[5] = 1.0;  // vignette_outer
+    uniforms[6] = 0.02; // border_inner
+    uniforms[7] = 0.05; // border_outer
+    uniforms[8] = 2.0;  // border_speed
+    uniforms[9] = 80.0; // border_frequency
+
     device.queue.writeBuffer(
       uniformBuffer,
       0,
@@ -134,6 +141,16 @@ function createPipeline(
         width: f32,
         height: f32,
         dpr: f32,
+
+        vignette_inner: f32,
+        vignette_outer: f32,
+        border_inner: f32,
+        border_outer: f32,
+
+        border_speed: f32,
+        border_frequency: f32,
+        _pad0: f32,
+        _pad1: f32,
       };
 
       @group(0) @binding(0)
@@ -157,17 +174,28 @@ function createPipeline(
         );
 
         // Vignette
-        let vignette = smoothstep(1.0, 0.4, d);
+        let vignette = smoothstep(
+          u.vignette_outer,
+          u.vignette_inner,
+          d
+        );
 
         // Border mask
         let edgeDist = min(
           min(uv.x, 1.0 - uv.x),
           min(uv.y, 1.0 - uv.y)
         );
-        let borderMask = 1.0 - smoothstep(0.02, 0.05, edgeDist);
+        let borderMask = 1.0 - smoothstep(
+          u.border_inner,
+          u.border_outer,
+          edgeDist
+        );
 
         // Animated border
-        let wave = 0.5 + 0.5 * sin(u.time * 2.0 + edgeDist * 80.0);
+        let wave = 0.5 + 0.5 * sin(
+          u.time * u.border_speed +
+            edgeDist * u.border_frequency
+        );
         let borderColor = vec3<f32>(0.9, 0.9, 0.95) * wave;
 
         let color = base * vignette;
