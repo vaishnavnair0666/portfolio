@@ -140,14 +140,40 @@ function createPipeline(
       var<uniform> u: Uniforms;
 
       @fragment
-      fn fs_main() -> @location(0) vec4<f32> {
-        let t = u.time;
-        return vec4<f32>(
-          0.5 + 0.5 * sin(t),
-          0.5 + 0.5 * cos(t),
-          0.8,
-          1.0
+      fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+        let uv = pos.xy / vec2<f32>(u.width, u.height);
+
+        // Centered + aspect-corrected coords
+        let centered = uv * 2.0 - vec2<f32>(1.0);
+        let aspect = u.width / u.height;
+        let p = vec2<f32>(centered.x * aspect, centered.y);
+        let d = length(p);
+
+        // Base animated color
+        let base = vec3<f32>(
+          0.5 + 0.5 * sin(u.time),
+          0.5 + 0.5 * cos(u.time),
+          0.8
         );
+
+        // Vignette
+        let vignette = smoothstep(1.0, 0.4, d);
+
+        // Border mask
+        let edgeDist = min(
+          min(uv.x, 1.0 - uv.x),
+          min(uv.y, 1.0 - uv.y)
+        );
+        let borderMask = 1.0 - smoothstep(0.02, 0.05, edgeDist);
+
+        // Animated border
+        let wave = 0.5 + 0.5 * sin(u.time * 2.0 + edgeDist * 80.0);
+        let borderColor = vec3<f32>(0.9, 0.9, 0.95) * wave;
+
+        let color = base * vignette;
+        let finalColor = mix(color, borderColor, borderMask);
+
+        return vec4<f32>(finalColor, 1.0);
       }
     `
   });
