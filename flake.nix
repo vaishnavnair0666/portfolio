@@ -9,7 +9,13 @@
       pkgs = import nixpkgs { inherit system; };
     in {
       devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [ nodejs_24 ];
+        packages = with pkgs; [
+          nodejs_24
+          rustc
+          cargo
+          wasm-pack
+          llvmPackages.lld
+        ];
 
         shellHook = ''
           export Nix_SHELL=npm
