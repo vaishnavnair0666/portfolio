@@ -1,5 +1,26 @@
 import { initWasm } from '$lib/gfx/wasm';
 
+function resizeCanvasToDisplaySize(
+  canvas: HTMLCanvasElement,
+  device: GPUDevice
+): boolean {
+  const dpr = window.devicePixelRatio || 1;
+
+  const displayWidth = Math.floor(canvas.clientWidth * dpr);
+  const displayHeight = Math.floor(canvas.clientHeight * dpr);
+
+  if (
+    canvas.width !== displayWidth ||
+    canvas.height !== displayHeight
+  ) {
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    return true;
+  }
+
+  return false;
+}
+
 export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
   if (!navigator.gpu) {
     throw new Error('WebGPU not supported');
@@ -18,6 +39,13 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
   }
 
   const format = navigator.gpu.getPreferredCanvasFormat();
+  resizeCanvasToDisplaySize(canvas, device);
+
+  context.configure({
+    device,
+    format,
+    alphaMode: 'opaque'
+  });
 
   const uniformBuffer = device.createBuffer({
     size: 4 * 4,
@@ -36,12 +64,6 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
     bindGroupLayouts: [bindGroupLayout]
   });
 
-  context.configure({
-    device,
-    format,
-    alphaMode: 'opaque'
-  });
-
   const pipeline = createPipeline(device, format, pipelineLayout);
 
   const bindGroup = device.createBindGroup({
@@ -52,18 +74,26 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
     }]
   });
 
-  device.queue.writeBuffer(
-    uniformBuffer,
-    0,
-    new Float32Array([1.0, 0.0, 0.0, 0.0])
-  );
-
   let start = performance.now();
 
   function frame(now: number) {
+    const resized = resizeCanvasToDisplaySize(canvas, device);
+
+    if (resized) {
+      context.configure({
+        device,
+        format,
+        alphaMode: 'opaque'
+      });
+    }
+
     const t = (now - start) * 0.001;
 
     update(t);
+
+    uniforms[1] = canvas.width;
+    uniforms[2] = canvas.height;
+    uniforms[3] = window.devicePixelRatio || 1;
 
     device.queue.writeBuffer(
       uniformBuffer,
@@ -101,9 +131,9 @@ function createPipeline(
 
       struct Uniforms {
         time: f32,
-        pad1: f32,
-        pad2: f32,
-        pad3: f32,
+        width: f32,
+        height: f32,
+        dpr: f32,
       };
 
       @group(0) @binding(0)
