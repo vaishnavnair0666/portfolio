@@ -1,14 +1,15 @@
 <script lang="ts">
-	export let data: {
-		projects: {
-			id: string;
-			title: string;
-			summary: string;
-			tags: string[];
-		}[];
-	};
+	import { onMount } from 'svelte';
+	import { startWebGPU } from '$lib/gfx/webgpu';
+
+	let canvas: HTMLCanvasElement;
+
+	onMount(() => {
+		startWebGPU(canvas).catch(console.error);
+	});
 </script>
 
+<canvas bind:this={canvas} width="600" height="400"></canvas>
 <main>
 	<h1>Vaishnav Nair</h1>
 
@@ -19,20 +20,6 @@
 	<p class="resume">
 		<a href="/resume.pdf" download> Download resume </a>
 	</p>
-
-	<section class="projects">
-		<h2>Projects</h2>
-
-		<ul>
-			{#each data.projects as project}
-				<li>
-					<h3>{project.title}</h3>
-					<p>{project.summary}</p>
-					<small>{project.tags.join(' · ')}</small>
-				</li>
-			{/each}
-		</ul>
-	</section>
 </main>
 
 <style>
@@ -62,21 +49,5 @@
 	.resume a {
 		font-weight: 500;
 		text-decoration: underline;
-	}
-	.projects {
-		margin-top: 4rem;
-	}
-
-	.projects ul {
-		list-style: none;
-		padding: 0;
-	}
-
-	.projects li {
-		margin-bottom: 2rem;
-	}
-
-	.projects h3 {
-		margin-bottom: 0.25rem;
 	}
 </style>

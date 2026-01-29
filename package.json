@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "@webgpu/types": "^0.1.69",
+    "typescript-language-server": "^5.1.3"
+  }
+}
