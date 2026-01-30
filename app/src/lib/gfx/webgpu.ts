@@ -73,7 +73,11 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       interaction.mouseY,
       interaction.interaction
     );
-
+    uniforms.setScroll(interaction.scroll, interaction.scrollSmooth)
+    uniforms.setSection(
+      interaction.section,
+      interaction.sectionProgress
+    );
     device.queue.writeBuffer(
       uniformBuffer,
       0,

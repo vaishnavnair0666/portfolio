@@ -25,4 +25,13 @@ export class Uniforms {
     this.data[11] = y;
     this.data[12] = i;
   }
+
+  setScroll(scroll: number, scrollSmooth: number) {
+    this.data[13] = scroll;
+    this.data[14] = scrollSmooth;
+  }
+  setSection(section: number, progress: number) {
+    this.data[15] = section;
+    // this.data[16] = progress;
+  }
 }

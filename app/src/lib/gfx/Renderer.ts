@@ -34,8 +34,8 @@ export function createPipeline(
         mouse_y: f32,
         interaction: f32,
 
-        _pad0: f32,
-        _pad1: f32,
+        scroll: f32,
+        scroll_smooth: f32,
         _pad2: f32,
       };
 
@@ -51,10 +51,13 @@ export function createPipeline(
         let p = vec2<f32>(centered.x * aspect, centered.y);
         let d = length(p);
 
-        let base = vec3<f32>(
-          0.5 + 0.5 * sin(u.time),
-          0.5 + 0.5 * cos(u.time),
-          0.8
+        let warm = vec3<f32>(0.9, 0.6, 0.4);
+        let cool = vec3<f32>(0.4, 0.6, 0.9);
+
+        let scrollColor = mix(cool, warm, u.scroll_smooth);
+
+        let base = scrollColor * (
+          0.5 + 0.5 * sin(u.time)
         );
 
         let mouse = vec2<f32>(u.mouse_x, u.mouse_y);
@@ -64,7 +67,7 @@ export function createPipeline(
         let vignette_strength = mix(
           u.vignette_outer,
           u.vignette_inner,
-          clamp(u.interaction, 0.0, 1.0)
+          clamp(u.interaction + u.scroll_smooth * 0.6 , 0.0, 1.0)
         );
 
         let vignette = smoothstep(
