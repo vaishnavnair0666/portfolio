@@ -1,64 +1,34 @@
 import { initWasm } from '$lib/gfx/wasm';
+import { Interaction } from './Interaction';
+import { Uniforms } from './Uniforms';
+import { Renderer, createPipeline } from './Renderer';
 
-function resizeCanvasToDisplaySize(
-  canvas: HTMLCanvasElement,
-  device: GPUDevice
-): boolean {
+function resizeCanvas(canvas: HTMLCanvasElement): boolean {
   const dpr = window.devicePixelRatio || 1;
+  const w = Math.floor(canvas.clientWidth * dpr);
+  const h = Math.floor(canvas.clientHeight * dpr);
 
-  const displayWidth = Math.floor(canvas.clientWidth * dpr);
-  const displayHeight = Math.floor(canvas.clientHeight * dpr);
-
-  if (
-    canvas.width !== displayWidth ||
-    canvas.height !== displayHeight
-  ) {
-    canvas.width = displayWidth;
-    canvas.height = displayHeight;
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
     return true;
   }
-
   return false;
 }
 
-export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
-  if (!navigator.gpu) {
-    throw new Error('WebGPU not supported');
-  }
-
+export async function startWebGPU(canvas: HTMLCanvasElement) {
   const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
-    throw new Error('No GPU adapter');
-  }
+  const device = await adapter!.requestDevice();
 
-  const device = await adapter.requestDevice();
-  const { update, uniforms } = await initWasm();
-  const context = canvas.getContext('webgpu') as GPUCanvasContext;
-  if (!context) {
-    throw new Error('Failed to get WebGPU context');
-  }
-  let mouseX = 0.5;
-  let mouseY = 0.5;
-  let interaction = 0.0;
+  const { update, uniforms: wasmUniforms } = await initWasm();
+  const interaction = new Interaction(canvas);
+  const uniforms = new Uniforms(wasmUniforms.buffer);
 
-  canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = (e.clientX - rect.left) / rect.width;
-    mouseY = 1.0 - (e.clientY - rect.top) / rect.height;
-    // console.log("X"+mouseX);
-    // console.log("y"+mouseY)
-    interaction = 1.0;
-    // console.log(interaction);
-  });
-
+  const context = canvas.getContext('webgpu')!;
   const format = navigator.gpu.getPreferredCanvasFormat();
-  resizeCanvasToDisplaySize(canvas, device);
 
-  context.configure({
-    device,
-    format,
-    alphaMode: 'opaque'
-  });
+  resizeCanvas(canvas);
+  context.configure({ device, format, alphaMode: 'opaque' });
 
   const uniformBuffer = device.createBuffer({
     size: 16 * 4,
@@ -81,209 +51,40 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
 
   const bindGroup = device.createBindGroup({
     layout: bindGroupLayout,
-    entries: [{
-      binding: 0,
-      resource: { buffer: uniformBuffer }
-    }]
+    entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
   });
 
-  let start = performance.now();
+  const renderer = new Renderer(device, context, pipeline, bindGroup);
+  const start = performance.now();
 
   function frame(now: number) {
-    const resized = resizeCanvasToDisplaySize(canvas, device);
-
-    if (resized) {
-      context.configure({
-        device,
-        format,
-        alphaMode: 'opaque'
-      });
+    if (resizeCanvas(canvas)) {
+      context.configure({ device, format, alphaMode: 'opaque' });
     }
 
     const t = (now - start) * 0.001;
-
     update(t);
-    if (interaction>0.005) {
-      interaction *=0.90;
-    }
-    uniforms[1] = canvas.width;
-    uniforms[2] = canvas.height;
-    uniforms[3] = window.devicePixelRatio || 1;
 
-    uniforms[4] = 0.4;  // vignette_inner
-    uniforms[5] = 1.0;  // vignette_outer
-    uniforms[6] = 0.02; // border_inner
-    uniforms[7] = 0.05; // border_outer
-    uniforms[8] = 2.0;  // border_speed
-    uniforms[9] = 80.0; // border_frequency
+    interaction.update();
+    uniforms.setResolution(canvas.width, canvas.height, window.devicePixelRatio || 1);
+    uniforms.setDesign();
+    uniforms.setInteraction(
+      interaction.mouseX,
+      interaction.mouseY,
+      interaction.interaction
+    );
 
-    uniforms[10] = mouseX;
-    uniforms[11] = mouseY;
-    uniforms[12] = interaction;
-    // console.log(interaction);
     device.queue.writeBuffer(
       uniformBuffer,
       0,
-      uniforms.buffer,
-      uniforms.byteOffset,
-      uniforms.byteLength
+      uniforms.data.buffer,
+      uniforms.data.byteOffset,
+      uniforms.data.byteLength
     );
 
-    renderFrame(device, context, format, pipeline, bindGroup);
-
+    renderer.draw();
     requestAnimationFrame(frame);
   }
 
   requestAnimationFrame(frame);
 }
-
-function createPipeline(
-  device: GPUDevice,
-  format: GPUTextureFormat,
-  pipelineLayout: GPUPipelineLayout
-) {
-  const shader = device.createShaderModule({
-    code: `
-      @vertex
-      fn vs_main(@builtin(vertex_index) i: u32)
-        -> @builtin(position) vec4<f32> {
-        var pos = array<vec2<f32>, 3>(
-          vec2<f32>(-1.0, -1.0),
-          vec2<f32>( 3.0, -1.0),
-          vec2<f32>(-1.0,  3.0)
-        );
-        return vec4<f32>(pos[i], 0.0, 1.0);
-      }
-
-      struct Uniforms {
-        time: f32,
-        width: f32,
-        height: f32,
-        dpr: f32,
-
-        vignette_inner: f32,
-        vignette_outer: f32,
-
-        border_inner: f32,
-        border_outer: f32,
-        border_speed: f32,
-        border_frequency: f32,
-
-        mouse_x: f32,
-        mouse_y: f32,
-        interaction: f32,
-
-        _pad0: f32,
-        _pad1: f32,
-        _pad2: f32,
-      };
-
-      @group(0) @binding(0)
-      var<uniform> u: Uniforms;
-
-      @fragment
-      fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
-        let uv = pos.xy / vec2<f32>(u.width, u.height);
-
-        // Centered + aspect-corrected coords
-        let centered = uv * 2.0 - vec2<f32>(1.0);
-        let aspect = u.width / u.height;
-        let p = vec2<f32>(centered.x * aspect, centered.y);
-        let d = length(p);
-
-        // Base animated color
-        let base = vec3<f32>(
-          0.5 + 0.5 * sin(u.time),
-          0.5 + 0.5 * cos(u.time),
-          0.8
-        );
-
-        // Vignette
-        // Shift vignette center using mouse
-        let mouse = vec2<f32>(u.mouse_x, u.mouse_y);
-        let centered_uv = uv - mouse;
-        let vignette_dist = length(centered_uv * vec2<f32>(aspect, 1.0));
-
-        // Interaction-scaled vignette
-        let vignette_strength = mix(
-          u.vignette_outer,
-          u.vignette_inner,
-          clamp(u.interaction, 0.0, 1.0)
-        );
-
-        let vignette = smoothstep(
-          vignette_strength,
-          u.vignette_outer,
-          vignette_dist
-        );
-
-        // Border mask
-        let edgeDist = min(
-          min(uv.x, 1.0 - uv.x),
-          min(uv.y, 1.0 - uv.y)
-        );
-        let borderMask = 1.0 - smoothstep(
-          u.border_inner,
-          u.border_outer,
-          edgeDist
-        );
-
-        // Animated border
-        let wave = 0.5 + 0.5 * sin(
-          u.time * u.border_speed +
-            edgeDist * u.border_frequency
-        );
-
-        let borderBoost = 1.0 + u.interaction * 1.5;
-        let borderColor = vec3<f32>(0.9, 0.9, 0.95) * wave * borderBoost;
-
-        let color = base * vignette;
-        let finalColor = mix(color, borderColor, borderMask);
-
-        return vec4<f32>(finalColor, 1.0);
-      }
-    `
-  });
-
-  return device.createRenderPipeline({
-    layout: pipelineLayout,
-    vertex: {
-      module: shader,
-      entryPoint: 'vs_main'
-    },
-    fragment: {
-      module: shader,
-      entryPoint: 'fs_main',
-      targets: [{ format }]
-    },
-    primitive: {
-      topology: 'triangle-list'
-    }
-  });
-}
-function renderFrame(
-  device: GPUDevice,
-  context: GPUCanvasContext,
-  format: GPUTextureFormat,
-  pipeline: GPURenderPipeline,
-  bindGroup: GPUBindGroup
-) {
-  const encoder = device.createCommandEncoder();
-
-  const pass = encoder.beginRenderPass({
-    colorAttachments: [{
-      view: context.getCurrentTexture().createView(),
-      loadOp: 'clear',
-      storeOp: 'store',
-      clearValue: { r: 0, g: 0, b: 0, a: 1 }
-    }]
-  });
-
-  pass.setPipeline(pipeline);
-  pass.setBindGroup(0, bindGroup);
-  pass.draw(3);
-  pass.end();
-
-  device.queue.submit([encoder.finish()]);
-}
-
