@@ -103,8 +103,9 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
     const t = (now - start) * 0.001;
 
     update(t);
-    // if (interaction < 0.001&& interaction!==0) interaction = 0.0;
-    interaction *= 0.90;
+    if (interaction>0.005) {
+      interaction *=0.90;
+    }
     uniforms[1] = canvas.width;
     uniforms[2] = canvas.height;
     uniforms[3] = window.devicePixelRatio || 1;
