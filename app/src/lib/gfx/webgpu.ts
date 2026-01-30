@@ -37,6 +37,19 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
   if (!context) {
     throw new Error('Failed to get WebGPU context');
   }
+  let mouseX = 0.5;
+  let mouseY = 0.5;
+  let interaction = 0.0;
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = (e.clientX - rect.left) / rect.width;
+    mouseY = 1.0 - (e.clientY - rect.top) / rect.height;
+    // console.log("X"+mouseX);
+    // console.log("y"+mouseY)
+    interaction = 1.0;
+    // console.log(interaction);
+  });
 
   const format = navigator.gpu.getPreferredCanvasFormat();
   resizeCanvasToDisplaySize(canvas, device);
@@ -48,7 +61,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
   });
 
   const uniformBuffer = device.createBuffer({
-    size: 12 * 4,
+    size: 16 * 4,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
 
@@ -90,7 +103,8 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
     const t = (now - start) * 0.001;
 
     update(t);
-
+    // if (interaction < 0.001&& interaction!==0) interaction = 0.0;
+    interaction *= 0.90;
     uniforms[1] = canvas.width;
     uniforms[2] = canvas.height;
     uniforms[3] = window.devicePixelRatio || 1;
@@ -102,6 +116,10 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<void> {
     uniforms[8] = 2.0;  // border_speed
     uniforms[9] = 80.0; // border_frequency
 
+    uniforms[10] = mouseX;
+    uniforms[11] = mouseY;
+    uniforms[12] = interaction;
+    // console.log(interaction);
     device.queue.writeBuffer(
       uniformBuffer,
       0,
@@ -144,13 +162,19 @@ function createPipeline(
 
         vignette_inner: f32,
         vignette_outer: f32,
+
         border_inner: f32,
         border_outer: f32,
-
         border_speed: f32,
         border_frequency: f32,
+
+        mouse_x: f32,
+        mouse_y: f32,
+        interaction: f32,
+
         _pad0: f32,
         _pad1: f32,
+        _pad2: f32,
       };
 
       @group(0) @binding(0)
@@ -174,10 +198,22 @@ function createPipeline(
         );
 
         // Vignette
-        let vignette = smoothstep(
+        // Shift vignette center using mouse
+        let mouse = vec2<f32>(u.mouse_x, u.mouse_y);
+        let centered_uv = uv - mouse;
+        let vignette_dist = length(centered_uv * vec2<f32>(aspect, 1.0));
+
+        // Interaction-scaled vignette
+        let vignette_strength = mix(
           u.vignette_outer,
           u.vignette_inner,
-          d
+          clamp(u.interaction, 0.0, 1.0)
+        );
+
+        let vignette = smoothstep(
+          vignette_strength,
+          u.vignette_outer,
+          vignette_dist
         );
 
         // Border mask
@@ -196,7 +232,9 @@ function createPipeline(
           u.time * u.border_speed +
             edgeDist * u.border_frequency
         );
-        let borderColor = vec3<f32>(0.9, 0.9, 0.95) * wave;
+
+        let borderBoost = 1.0 + u.interaction * 1.5;
+        let borderColor = vec3<f32>(0.9, 0.9, 0.95) * wave * borderBoost;
 
         let color = base * vignette;
         let finalColor = mix(color, borderColor, borderMask);
@@ -241,7 +279,7 @@ function renderFrame(
   });
 
   pass.setPipeline(pipeline);
-  pass.setBindGroup(0, bindGroup); // <-- NEW
+  pass.setBindGroup(0, bindGroup);
   pass.draw(3);
   pass.end();
 

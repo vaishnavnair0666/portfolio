@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct Engine {
-    uniforms: [f32; 12],
+    uniforms: [f32; 16],
 }
 
 #[wasm_bindgen]
@@ -11,18 +11,27 @@ impl Engine {
     pub fn new() -> Engine {
         Engine {
             uniforms: [
-                0.0, // time
-                0.0, // width
-                0.0, // height
-                1.0, // dpr
-                0.4, // vignette_inner
-                1.0, // vignette_outer
-                0.02, // border_inner
-                0.05, // border_outer
-                2.0, // border_speed
-                80.0, // border_frequency
-                0.0, 
-                0.0,
+                // time / resolution
+                0.0, // 0 time
+                0.0, // 1 width
+                0.0, // 2 height
+                1.0, // 3 dpr
+                // vignette
+                0.4, // 4 vignette_inner
+                1.0, // 5 vignette_outer
+                // border
+                0.02, // 6 border_inner
+                0.05, // 7 border_outer
+                2.0,  // 8 border_speed
+                80.0, // 9 border_frequency
+                // interaction
+                0.5, // 10 mouse_x
+                0.5, // 11 mouse_y
+                0.0, // 12 interaction
+                // padding / future
+                0.0, // 13
+                0.0, // 14
+                0.0, // 15
             ],
         }
     }
