@@ -12,7 +12,7 @@
 <main>
 	<h1>Vaishnav Nair</h1>
 
-	<canvas bind:this={canvas} width="600" height="400"></canvas>
+	<canvas bind:this={canvas} width="1000" height="600"></canvas>
 	<p class="tagline">
 		Engineering student focused on declarative systems, graphics, and web architecture.
 	</p>

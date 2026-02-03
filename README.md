@@ -2,7 +2,7 @@
 ## Parameters
 
 | Index | Name             | Meaning             |
-| ----: | ---------------- | ------------------- |
+| ----- | ---------------- | ------------------- |
 |     0 | time             | Seconds since start |
 |     1 | width            | Canvas width (px)   |
 |     2 | height           | Canvas height (px)  |
