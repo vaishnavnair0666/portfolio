@@ -9,10 +9,9 @@ export class Interaction {
   scroll = 0.0;
   scrollSmooth = 0.0;
   constructor(canvas: HTMLCanvasElement) {
-    canvas.addEventListener('mousemove', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      this.mouseX = (e.clientX - rect.left) / rect.width;
-      this.mouseY = 1.0 - (e.clientY - rect.top) / rect.height;
+    window.addEventListener('mousemove', (e) => {
+      this.mouseX=e.clientX/window.innerWidth;
+      this.mouseY=e.clientY/window.innerHeight;
       this.interaction = 1.0;
     });
 

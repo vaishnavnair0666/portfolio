@@ -9,10 +9,10 @@
 	});
 </script>
 
-<main>
+<canvas bind:this={canvas} class="gfx-canvas"></canvas>
+<main class="content">
 	<h1>Vaishnav Nair</h1>
 
-	<canvas bind:this={canvas} width="600" height="400"></canvas>
 	<p class="tagline">
 		Engineering student focused on declarative systems, graphics, and web architecture.
 	</p>
@@ -23,7 +23,8 @@
 </main>
 
 <style>
-	main {
+	.content {
+    z-index: 1;
 		max-width: 48rem;
 		margin: 5rem auto;
 		padding: 0 1.25rem;
@@ -33,7 +34,12 @@
 			BlinkMacSystemFont,
 			sans-serif;
 	}
-
+	.gfx-canvas {
+		position: fixed;
+		inset: 0;
+		width: 100vw;
+		height: 100vh;
+	}
 	h1 {
 		font-size: 2.5rem;
 		margin-bottom: 1rem;

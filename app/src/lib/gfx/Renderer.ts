@@ -95,10 +95,12 @@ export function createPipeline(
         let borderBoost = 1.0 + u.interaction * 1.5;
         let borderColor = vec3<f32>(0.9, 0.9, 0.95) * wave * borderBoost;
 
+        let alpha = mix(0.4, 0.85, vignette);
+
         let color = base * vignette;
         let finalColor = mix(color, borderColor, borderMask);
 
-        return vec4<f32>(finalColor, 1.0);
+        return vec4<f32>(finalColor, alpha);
       }
     `
   });
@@ -112,7 +114,21 @@ export function createPipeline(
     fragment: {
       module: shader,
       entryPoint: 'fs_main',
-      targets: [{ format }]
+      targets: [{
+        format,
+        blend: {
+          color: {
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
+            operation: 'add'
+          },
+          alpha: {
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
+            operation: 'add'
+          }
+        }
+      }]
     },
     primitive: {
       topology: 'triangle-list'
@@ -135,7 +151,7 @@ export class Renderer {
         view: this.context.getCurrentTexture().createView(),
         loadOp: 'clear',
         storeOp: 'store',
-        clearValue: { r: 0, g: 0, b: 0, a: 1 }
+        clearValue: { r: 0, g: 0, b: 0, a: 0 }
       }]
     });
 

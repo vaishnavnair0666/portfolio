@@ -5,8 +5,8 @@ import { Renderer, createPipeline } from './Renderer';
 
 function resizeCanvas(canvas: HTMLCanvasElement): boolean {
   const dpr = window.devicePixelRatio || 1;
-  const w = Math.floor(canvas.clientWidth * dpr);
-  const h = Math.floor(canvas.clientHeight * dpr);
+  const w = Math.floor(window.innerWidth * dpr);
+  const h = Math.floor(window.innerHeight * dpr);
 
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
@@ -28,7 +28,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   const format = navigator.gpu.getPreferredCanvasFormat();
 
   resizeCanvas(canvas);
-  context.configure({ device, format, alphaMode: 'opaque' });
+  context.configure({ device, format, alphaMode: 'premultiplied' });
 
   const uniformBuffer = device.createBuffer({
     size: 16 * 4,
