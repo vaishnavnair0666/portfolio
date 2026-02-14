@@ -1,7 +1,8 @@
 import { initWasm } from '$lib/gfx/wasm';
 import { Interaction } from './Interaction';
 import { Uniforms } from './Uniforms';
-import { Renderer, createPipeline } from './Renderer';
+import { Renderer } from './Renderer';
+import { BackgroundPass } from './BackgroundPass';
 
 function resizeCanvas(canvas: HTMLCanvasElement): boolean {
   const dpr = window.devicePixelRatio || 1;
@@ -35,7 +36,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
 
-  const bindGroupLayout = device.createBindGroupLayout({
+  const globalBindGroupLayout = device.createBindGroupLayout({
     entries: [{
       binding: 0,
       visibility: GPUShaderStage.FRAGMENT,
@@ -44,17 +45,24 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   });
 
   const pipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [bindGroupLayout]
+    bindGroupLayouts: [globalBindGroupLayout]
   });
 
-  const pipeline = createPipeline(device, format, pipelineLayout);
-
-  const bindGroup = device.createBindGroup({
-    layout: bindGroupLayout,
+  const globalBindGroup = device.createBindGroup({
+    layout: globalBindGroupLayout,
     entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
   });
 
-  const renderer = new Renderer(device, context, pipeline, bindGroup);
+  const renderer = new Renderer(device, context);
+
+  const backgroundPass = new BackgroundPass(
+    device,
+    format,
+    pipelineLayout,
+    globalBindGroup
+  );
+
+  renderer.addLayer(backgroundPass);
   const start = performance.now();
 
   function frame(now: number) {
