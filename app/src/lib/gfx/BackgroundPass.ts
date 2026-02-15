@@ -2,13 +2,20 @@ import type { RenderPassLayer } from './RenderPass';
 
 export class BackgroundPass implements RenderPassLayer {
   private pipeline: GPURenderPipeline;
+  private bindGroup: GPUBindGroup;
 
   constructor(
     device: GPUDevice,
     format: GPUTextureFormat,
-    pipelineLayout: GPUPipelineLayout,
-    private bindGroup: GPUBindGroup
+    globalBindGroupLayout: GPUBindGroupLayout,
+    globalBindGroup: GPUBindGroup
   ) {
+    this.bindGroup = globalBindGroup;
+
+    const pipelineLayout = device.createPipelineLayout({
+      bindGroupLayouts: [globalBindGroupLayout]
+    });
+
     const shader = device.createShaderModule({
       code: `
         @vertex
@@ -62,9 +69,7 @@ export class BackgroundPass implements RenderPassLayer {
 
           let scrollColor = mix(cool, warm, u.scroll_smooth);
 
-          let base = scrollColor * (
-            0.5 + 0.5 * sin(u.time)
-          );
+          let base = scrollColor * (0.5 + 0.5 * sin(u.time));
 
           let mouse = vec2<f32>(u.mouse_x, u.mouse_y);
           let centered_uv = uv - mouse;
@@ -95,7 +100,7 @@ export class BackgroundPass implements RenderPassLayer {
 
           let wave = 0.5 + 0.5 * sin(
             u.time * u.border_speed +
-              edgeDist * u.border_frequency
+            edgeDist * u.border_frequency
           );
 
           let borderBoost = 1.0 + u.interaction * 1.5;

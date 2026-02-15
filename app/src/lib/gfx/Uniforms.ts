@@ -1,8 +1,8 @@
 export class Uniforms {
   readonly data: Float32Array;
 
-  constructor(buffer: ArrayBufferLike) {
-    this.data = new Float32Array(buffer, 0, 16);
+  constructor(buffer: ArrayBufferLike, length = 16) {
+    this.data = new Float32Array(buffer, 0, length);
   }
 
   setResolution(w: number, h: number, dpr: number) {

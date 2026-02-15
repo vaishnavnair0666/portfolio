@@ -4,6 +4,12 @@ import { Uniforms } from './Uniforms';
 import { Renderer } from './Renderer';
 import { BackgroundPass } from './BackgroundPass';
 
+import { createQuadVertexBuffer } from './mesh';
+import { loadTexture } from './loadTexture';
+import { createAssetPipeline, createAssetBindGroupLayout } from './assetPipeline';
+import { BorderAsset } from './BorderAsset';
+import { AssetPass } from './AssetPass';
+
 function resizeCanvas(canvas: HTMLCanvasElement): boolean {
   const dpr = window.devicePixelRatio || 1;
   const w = Math.floor(window.innerWidth * dpr);
@@ -39,13 +45,9 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   const globalBindGroupLayout = device.createBindGroupLayout({
     entries: [{
       binding: 0,
-      visibility: GPUShaderStage.FRAGMENT,
+      visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
       buffer: { type: 'uniform' }
     }]
-  });
-
-  const pipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [globalBindGroupLayout]
   });
 
   const globalBindGroup = device.createBindGroup({
@@ -58,34 +60,90 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   const backgroundPass = new BackgroundPass(
     device,
     format,
-    pipelineLayout,
+    globalBindGroupLayout,
     globalBindGroup
   );
 
   renderer.addLayer(backgroundPass);
+
+  const assetBindGroupLayout = createAssetBindGroupLayout(device);
+  const assetPipeline = createAssetPipeline(
+    device,
+    format,
+    globalBindGroupLayout,
+    assetBindGroupLayout
+  );
+
+  const assetPass = new AssetPass(
+    assetPipeline,
+    globalBindGroup
+  );
+
+  renderer.addLayer(assetPass);
+
+  const quad = createQuadVertexBuffer(device);
+  const texture = await loadTexture(device, '/assets/test.png');
+
+  const sampler = device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear'
+  });
+
+  const asset = new BorderAsset(
+    device,
+    quad,
+    assetBindGroupLayout,
+    texture,
+    sampler,
+    {
+      edge: 0,
+      offset: 0.5,
+      size: 0.15,
+      rotationSpeed: 1.0,
+      bobAmplitude: 0.05,
+      bobFrequency: 2.0,
+      opacity: 1.0
+    }
+  );
+
+  assetPass.addAsset(asset);
+
   const start = performance.now();
 
   function frame(now: number) {
     if (resizeCanvas(canvas)) {
-      context.configure({ device, format, alphaMode: 'opaque' });
+      context.configure({ device, format, alphaMode: 'premultiplied' });
     }
 
     const t = (now - start) * 0.001;
     update(t);
 
     interaction.update();
-    uniforms.setResolution(canvas.width, canvas.height, window.devicePixelRatio || 1);
+
+    uniforms.setResolution(
+      canvas.width,
+      canvas.height,
+      window.devicePixelRatio || 1
+    );
+
     uniforms.setDesign();
+
     uniforms.setInteraction(
       interaction.mouseX,
       interaction.mouseY,
       interaction.interaction
     );
-    uniforms.setScroll(interaction.scroll, interaction.scrollSmooth)
+
+    uniforms.setScroll(
+      interaction.scroll,
+      interaction.scrollSmooth
+    );
+
     uniforms.setSection(
       interaction.section,
       interaction.sectionProgress
     );
+
     device.queue.writeBuffer(
       uniformBuffer,
       0,
@@ -95,6 +153,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     );
 
     renderer.draw();
+
     requestAnimationFrame(frame);
   }
 
