@@ -5,9 +5,7 @@ import { Renderer } from './Renderer';
 import { BackgroundPass } from './BackgroundPass';
 
 import { createQuadVertexBuffer } from './mesh';
-import { loadTexture } from './loadTexture';
-import { createAssetPipeline, createAssetBindGroupLayout } from './assetPipeline';
-import { BorderAsset } from './BorderAsset';
+import { createAssetPipeline} from './assetPipeline';
 import { AssetPass } from './AssetPass';
 
 function resizeCanvas(canvas: HTMLCanvasElement): boolean {
@@ -68,47 +66,28 @@ export async function startWebGPU(canvas: HTMLCanvasElement): Promise<() => void
 
   renderer.addLayer(backgroundPass);
 
-  const assetBindGroupLayout = createAssetBindGroupLayout(device);
   const assetPipeline = createAssetPipeline(
     device,
     format,
     globalBindGroupLayout,
-    assetBindGroupLayout
   );
 
+  const quad = createQuadVertexBuffer(device);
   const assetPass = new AssetPass(
     assetPipeline,
-    globalBindGroup
+    globalBindGroup,
+    quad,
+    200
   );
 
   renderer.addLayer(assetPass);
 
-  const quad = createQuadVertexBuffer(device);
-  const texture = await loadTexture(device, '/assets/test2.png');
+  // const texture = await loadTexture(device, '/assets/test2.png');
 
-  const sampler = device.createSampler({
-    magFilter: 'linear',
-    minFilter: 'linear'
-  });
-
-  const asset = new BorderAsset(
-    device,
-    quad,
-    assetBindGroupLayout,
-    texture,
-    sampler,
-    {
-      edge: 0,
-      offset: 0.5,
-      size: 0.15,
-      rotationSpeed: 1.0,
-      bobAmplitude: 0.05,
-      bobFrequency: 2.0,
-      opacity: 1.0
-    }
-  );
-
-  assetPass.addAsset(asset);
+  // const sampler = device.createSampler({
+  //   magFilter: 'linear',
+  //   minFilter: 'linear'
+  // });
 
   const start = performance.now();
 

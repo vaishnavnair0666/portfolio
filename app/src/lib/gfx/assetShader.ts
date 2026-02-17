@@ -18,29 +18,8 @@ struct Globals {
   _pad: f32
 };
 
-struct Asset {
-  edge: f32,
-  offset: f32,
-  size: f32,
-  phase: f32,
-
-  rotationSpeed: f32,
-  bobAmplitude: f32,
-  bobFrequency: f32,
-  opacity: f32
-};
-
 @group(0) @binding(0)
 var<uniform> globals: Globals;
-
-@group(1) @binding(0)
-var<uniform> asset: Asset;
-
-@group(1) @binding(1)
-var assetTex: texture_2d<f32>;
-
-@group(1) @binding(2)
-var assetSampler: sampler;
 
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
@@ -50,35 +29,36 @@ struct VSOut {
 @vertex
 fn vs_main(
   @location(0) in_pos: vec2<f32>,
-  @location(1) in_uv: vec2<f32>
+  @location(1) in_uv: vec2<f32>,
+  @builtin(instance_index) instance: u32
 ) -> VSOut {
 
   var out: VSOut;
 
-  let t = globals.time;
-  let scaled = in_pos * asset.size;
+  let scaled = in_pos * 0.12;
 
-  // --- EDGE ROTATION ---
+  let edge = f32(instance / 50u);   // 50 per edge
+  let index = f32(instance % 50u);
+
+  let offset = index / 49.0;
+
   var angle: f32 = 0.0;
 
-  if (asset.edge == 0.0) {          // top
+  if (edge == 0.0) {          // top
     angle = 0.0;
   }
-  else if (asset.edge == 1.0) {     // right
-    angle = 1.570796;               // 90°
+  else if (edge == 1.0) {     // right
+    angle = 1.570796;
   }
-  else if (asset.edge == 2.0) {     // bottom
-    angle = 3.141592;               // 180°
+  else if (edge == 2.0) {     // bottom
+    angle = 3.141592;
   }
-  else {                            // left
-    angle = -1.570796;              // -90°
+  else {
+    angle = -1.570796;
   }
 
-  // --- Optional subtle energy rotation ---
-  let energySpin = globals.time * globals.border_speed * 0.5;
-  angle += energySpin;
+  angle += globals.time * 0.5;
 
-  // --- 2D rotation ---
   let c = cos(angle);
   let s = sin(angle);
 
@@ -89,27 +69,28 @@ fn vs_main(
 
   var x = rotated.x;
   var y = rotated.y;
-  let bob = sin(globals.time * 4.0 + asset.offset * 10.0) * 0.02;
-  x += bob * 1.0;
-  
-  y += bob * 1.0;
 
-  if (asset.edge == 0.0) {
-    y += 1.0 - asset.size + bob;
-    x += asset.offset * 2.0 - 1.0;
+  let bob = sin(globals.time * 3.0 + offset * 10.0) * 0.02;
+
+  if (edge == 0.0) {
+    y += 1.0 - 0.12;
+    x += offset * 2.0 - 1.0;
   }
-  else if (asset.edge == 1.0) {
-    x += 1.0 - asset.size + bob;
-    y += asset.offset * 2.0 - 1.0;
+  else if (edge == 1.0) {
+    x += 1.0 - 0.12;
+    y += offset * 2.0 - 1.0;
   }
-  else if (asset.edge == 2.0) {
-    y += -1.0 + asset.size - bob;
-    x += asset.offset * 2.0 - 1.0;
+  else if (edge == 2.0) {
+    y += -1.0 + 0.12;
+    x += offset * 2.0 - 1.0;
   }
   else {
-    x += -1.0 + asset.size - bob;
-    y += asset.offset * 2.0 - 1.0;
+    x += -1.0 + 0.12;
+    y += offset * 2.0 - 1.0;
   }
+
+  x += bob;
+  y += bob;
 
   out.pos = vec4<f32>(x, y, 0.0, 1.0);
   out.uv = in_uv;
@@ -117,10 +98,13 @@ fn vs_main(
   return out;
 }
 
+// @fragment
+// fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+//   let tex = textureSample(assetTex, assetSampler, uv);
+//   return vec4<f32>(tex.rgb, tex.a);
+// }
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  let tex = textureSample(assetTex, assetSampler, uv);
-  let glow = pow(length(tex.rgb), 2.0) * 0.2;
-  return vec4<f32>(tex.rgb + glow, tex.a);
+  return vec4<f32>(1.0, 0.3, 0.1, 1.0);
 }
 `;

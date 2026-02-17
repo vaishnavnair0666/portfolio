@@ -26,11 +26,10 @@ export function createAssetPipeline(
   device: GPUDevice,
   format: GPUTextureFormat,
   globalLayout: GPUBindGroupLayout,
-  assetLayout: GPUBindGroupLayout
 ): GPURenderPipeline {
 
   const pipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [globalLayout, assetLayout]
+    bindGroupLayouts: [globalLayout]
   });
 
   const module = device.createShaderModule({ code: assetShader });

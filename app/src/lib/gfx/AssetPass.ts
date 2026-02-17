@@ -1,25 +1,22 @@
 import type { RenderPassLayer } from './RenderPass';
-import type { BorderAsset } from './BorderAsset';
 
 export class AssetPass implements RenderPassLayer {
-  private assets: BorderAsset[] = [];
+  private instanceCount: number;
 
   constructor(
     private pipeline: GPURenderPipeline,
-    private globalBindGroup: GPUBindGroup
-  ) { }
-
-  addAsset(asset: BorderAsset) {
-    this.assets.push(asset);
+    private globalBindGroup: GPUBindGroup,
+    private quadVertexBuffer: GPUBuffer,
+    instanceCount: number
+  ) {
+    this.instanceCount = instanceCount;
   }
 
   draw(pass: GPURenderPassEncoder) {
     pass.setPipeline(this.pipeline);
     pass.setBindGroup(0, this.globalBindGroup);
+    pass.setVertexBuffer(0, this.quadVertexBuffer);
 
-    for (const asset of this.assets) {
-      asset.draw(pass);
-    }
+    pass.draw(6, this.instanceCount);
   }
 }
-
