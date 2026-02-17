@@ -22,7 +22,12 @@ struct Asset {
   edge: f32,
   offset: f32,
   size: f32,
-  phase: f32
+  phase: f32,
+
+  rotationSpeed: f32,
+  bobAmplitude: f32,
+  bobFrequency: f32,
+  opacity: f32
 };
 
 @group(0) @binding(0)
@@ -50,31 +55,48 @@ fn vs_main(
 
   var out: VSOut;
 
-  // Scale quad
-  let scaled = in_pos * asset.size;
+  let t = globals.time + asset.phase;
 
-  // Position along edge (simple version first)
-  var x = scaled.x;
-  var y = scaled.y;
+  // ---------- Rotation ----------
+  let angle = t * asset.rotationSpeed;
 
-  if (asset.edge == 0.0) {         // top
-    y += 1.0 - asset.size;
-    x += asset.offset * 2.0 - 1.0;
+  let c = cos(angle);
+  let s = sin(angle);
+
+  let rotated = vec2<f32>(
+    in_pos.x * c - in_pos.y * s,
+    in_pos.x * s + in_pos.y * c
+  );
+
+  // ---------- Scale ----------
+  var p = rotated * asset.size;
+
+  // ---------- Bobbing ----------
+  let bob = sin(t * asset.bobFrequency) * asset.bobAmplitude;
+
+  // ---------- Edge Placement ----------
+  if (asset.edge == 0.0) {         // TOP
+    p.y += 1.0 - asset.size;
+    p.x += asset.offset * 2.0 - 1.0;
+    p.y += bob;
   }
-  else if (asset.edge == 1.0) {    // right
-    x += 1.0 - asset.size;
-    y += asset.offset * 2.0 - 1.0;
+  else if (asset.edge == 1.0) {    // RIGHT
+    p.x += 1.0 - asset.size;
+    p.y += asset.offset * 2.0 - 1.0;
+    p.x += bob;
   }
-  else if (asset.edge == 2.0) {    // bottom
-    y += -1.0 + asset.size;
-    x += asset.offset * 2.0 - 1.0;
+  else if (asset.edge == 2.0) {    // BOTTOM
+    p.y += -1.0 + asset.size;
+    p.x += asset.offset * 2.0 - 1.0;
+    p.y -= bob;
   }
-  else {                           // left
-    x += -1.0 + asset.size;
-    y += asset.offset * 2.0 - 1.0;
+  else {                          // LEFT
+    p.x += -1.0 + asset.size;
+    p.y += asset.offset * 2.0 - 1.0;
+    p.x -= bob;
   }
 
-  out.pos = vec4<f32>(x, y, 0.0, 1.0);
+  out.pos = vec4<f32>(p, 0.0, 1.0);
   out.uv = in_uv;
 
   return out;
@@ -83,6 +105,6 @@ fn vs_main(
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let tex = textureSample(assetTex, assetSampler, uv);
-  return vec4<f32>(tex.rgb, 1.0);
+  return vec4<f32>(tex.rgb, tex.a * asset.opacity);
 }
 `;

@@ -117,7 +117,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
 
     const t = (now - start) * 0.001;
     update(t);
-
+    uniforms.setTime(t);
     interaction.update();
 
     uniforms.setResolution(

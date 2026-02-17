@@ -4,6 +4,9 @@ export class Uniforms {
   constructor(buffer: ArrayBufferLike, length = 16) {
     this.data = new Float32Array(buffer, 0, length);
   }
+  setTime(t: number) {
+    this.data[0] = t;
+  }
 
   setResolution(w: number, h: number, dpr: number) {
     this.data[1] = w;
