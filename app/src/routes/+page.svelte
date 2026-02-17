@@ -5,7 +5,15 @@
 	let canvas: HTMLCanvasElement;
 
 	onMount(() => {
-		startWebGPU(canvas).catch(console.error);
+		let cleanup: (() => void) | undefined;
+
+		startWebGPU(canvas)
+			.then((fn) => (cleanup = fn))
+			.catch(console.error);
+
+		return () => {
+			cleanup?.();
+		};
 	});
 </script>
 
@@ -24,7 +32,7 @@
 
 <style>
 	.content {
-    z-index: 1;
+		z-index: 1;
 		max-width: 48rem;
 		margin: 5rem auto;
 		padding: 0 1.25rem;

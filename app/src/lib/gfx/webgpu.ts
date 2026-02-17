@@ -23,7 +23,9 @@ function resizeCanvas(canvas: HTMLCanvasElement): boolean {
   return false;
 }
 
-export async function startWebGPU(canvas: HTMLCanvasElement) {
+export async function startWebGPU(canvas: HTMLCanvasElement): Promise<() => void> {
+  let animationId: number;
+
   const adapter = await navigator.gpu.requestAdapter();
   const device = await adapter!.requestDevice();
 
@@ -82,7 +84,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   renderer.addLayer(assetPass);
 
   const quad = createQuadVertexBuffer(device);
-  const texture = await loadTexture(device, '/assets/test.png');
+  const texture = await loadTexture(device, '/assets/test2.png');
 
   const sampler = device.createSampler({
     magFilter: 'linear',
@@ -154,8 +156,13 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
 
     renderer.draw();
 
-    requestAnimationFrame(frame);
+    animationId = requestAnimationFrame(frame);
   }
 
-  requestAnimationFrame(frame);
+  animationId = requestAnimationFrame(frame);
+
+  return () => {
+    cancelAnimationFrame(animationId);
+    device.destroy();
+  };
 }

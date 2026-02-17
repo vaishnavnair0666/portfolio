@@ -55,48 +55,63 @@ fn vs_main(
 
   var out: VSOut;
 
-  let t = globals.time + asset.phase;
+  let t = globals.time;
+  let scaled = in_pos * asset.size;
 
-  // ---------- Rotation ----------
-  let angle = t * asset.rotationSpeed;
+  // --- EDGE ROTATION ---
+  var angle: f32 = 0.0;
 
+  if (asset.edge == 0.0) {          // top
+    angle = 0.0;
+  }
+  else if (asset.edge == 1.0) {     // right
+    angle = 1.570796;               // 90°
+  }
+  else if (asset.edge == 2.0) {     // bottom
+    angle = 3.141592;               // 180°
+  }
+  else {                            // left
+    angle = -1.570796;              // -90°
+  }
+
+  // --- Optional subtle energy rotation ---
+  let energySpin = globals.time * globals.border_speed * 0.5;
+  angle += energySpin;
+
+  // --- 2D rotation ---
   let c = cos(angle);
   let s = sin(angle);
 
   let rotated = vec2<f32>(
-    in_pos.x * c - in_pos.y * s,
-    in_pos.x * s + in_pos.y * c
+    scaled.x * c - scaled.y * s,
+    scaled.x * s + scaled.y * c
   );
 
-  // ---------- Scale ----------
-  var p = rotated * asset.size;
+  var x = rotated.x;
+  var y = rotated.y;
+  let bob = sin(globals.time * 4.0 + asset.offset * 10.0) * 0.02;
+  x += bob * 1.0;
+  
+  y += bob * 1.0;
 
-  // ---------- Bobbing ----------
-  let bob = sin(t * asset.bobFrequency) * asset.bobAmplitude;
-
-  // ---------- Edge Placement ----------
-  if (asset.edge == 0.0) {         // TOP
-    p.y += 1.0 - asset.size;
-    p.x += asset.offset * 2.0 - 1.0;
-    p.y += bob;
+  if (asset.edge == 0.0) {
+    y += 1.0 - asset.size + bob;
+    x += asset.offset * 2.0 - 1.0;
   }
-  else if (asset.edge == 1.0) {    // RIGHT
-    p.x += 1.0 - asset.size;
-    p.y += asset.offset * 2.0 - 1.0;
-    p.x += bob;
+  else if (asset.edge == 1.0) {
+    x += 1.0 - asset.size + bob;
+    y += asset.offset * 2.0 - 1.0;
   }
-  else if (asset.edge == 2.0) {    // BOTTOM
-    p.y += -1.0 + asset.size;
-    p.x += asset.offset * 2.0 - 1.0;
-    p.y -= bob;
+  else if (asset.edge == 2.0) {
+    y += -1.0 + asset.size - bob;
+    x += asset.offset * 2.0 - 1.0;
   }
-  else {                          // LEFT
-    p.x += -1.0 + asset.size;
-    p.y += asset.offset * 2.0 - 1.0;
-    p.x -= bob;
+  else {
+    x += -1.0 + asset.size - bob;
+    y += asset.offset * 2.0 - 1.0;
   }
 
-  out.pos = vec4<f32>(p, 0.0, 1.0);
+  out.pos = vec4<f32>(x, y, 0.0, 1.0);
   out.uv = in_uv;
 
   return out;
@@ -105,6 +120,7 @@ fn vs_main(
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let tex = textureSample(assetTex, assetSampler, uv);
-  return vec4<f32>(tex.rgb, tex.a * asset.opacity);
+  let glow = pow(length(tex.rgb), 2.0) * 0.2;
+  return vec4<f32>(tex.rgb + glow, tex.a);
 }
 `;
