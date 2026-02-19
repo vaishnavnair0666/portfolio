@@ -1,8 +1,42 @@
 use wasm_bindgen::prelude::*;
 
+pub type Entity = u32;
+
+#[derive(Clone, Copy)]
+pub struct Transform {
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
+    pub scale: [f32; 3],
+}
+
+#[derive(Clone, Copy)]
+pub struct Velocity {
+    pub linear: [f32; 3],
+}
+
+#[derive(Clone, Copy)]
+pub struct Camera {
+    pub position: [f32; 3],
+    pub fov: f32,
+    pub near: f32,
+    pub far: f32,
+    pub aspect: f32,
+}
+
 #[wasm_bindgen]
 pub struct Engine {
-    uniforms: [f32; 16],
+    time: f32,
+    delta: f32,
+
+    next_entity: Entity,
+
+    transforms: Vec<Option<Transform>>,
+    velocities: Vec<Option<Velocity>>,
+
+    camera: Option<Camera>,
+
+    render_buffer: Vec<f32>,
+    view_proj: [f32; 16],
 }
 
 #[wasm_bindgen]
@@ -10,41 +44,196 @@ impl Engine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Engine {
         Engine {
-            uniforms: [
-                // time / resolution
-                0.0, // 0 time
-                0.0, // 1 width
-                0.0, // 2 height
-                1.0, // 3 dpr
-                // vignette
-                0.4, // 4 vignette_inner
-                1.0, // 5 vignette_outer
-                // border
-                0.02, // 6 border_inner
-                0.05, // 7 border_outer
-                2.0,  // 8 border_speed
-                80.0, // 9 border_frequency
-                // interaction
-                0.5, // 10 mouse_x
-                0.5, // 11 mouse_y
-                0.0, // 12 interaction
-                // padding / future
-                0.0, // 13
-                0.0, // 14
-                0.0, // 15
-            ],
+            time: 0.0,
+            delta: 0.0,
+            next_entity: 0,
+            transforms: Vec::new(),
+            velocities: Vec::new(),
+            camera: None,
+            render_buffer: Vec::new(),
+            view_proj: [0.0; 16],
         }
     }
 
-    pub fn update(&mut self, time: f32) {
-        self.uniforms[0] = time;
+    pub fn update(&mut self, delta: f32) {
+        self.delta = delta;
+        self.time += delta;
+
+        self.integrate_velocity();
+        self.update_camera();
+        self.build_render_buffer();
     }
 
-    pub fn uniforms_ptr(&self) -> *const f32 {
-        self.uniforms.as_ptr()
+    fn integrate_velocity(&mut self) {
+        for i in 0..self.transforms.len() {
+            if let (Some(mut t), Some(v)) = (self.transforms[i], self.velocities[i]) {
+                t.position[0] += v.linear[0] * self.delta;
+                t.position[1] += v.linear[1] * self.delta;
+                t.position[2] += v.linear[2] * self.delta;
+
+                // simple Y rotation so we see real 3D
+                t.rotation[1] += self.delta;
+
+                self.transforms[i] = Some(t);
+            }
+        }
     }
 
-    pub fn uniforms_len(&self) -> usize {
-        self.uniforms.len()
+    fn update_camera(&mut self) {
+        if let Some(cam) = self.camera {
+            let proj = Self::perspective(cam.fov, cam.aspect, cam.near, cam.far);
+            let view = Self::view_matrix(cam.position);
+
+            self.view_proj = Self::mul_mat4(proj, view);
+        }
+    }
+
+    fn view_matrix(pos: [f32; 3]) -> [f32; 16] {
+        // Column-major
+        [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -pos[0], -pos[1], -pos[2],
+            1.0,
+        ]
+    }
+
+    fn perspective(fov: f32, aspect: f32, near: f32, far: f32) -> [f32; 16] {
+        let f = 1.0 / (fov / 2.0).tan();
+
+        [
+            f / aspect,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            f,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            far / (near - far),
+            -1.0,
+            0.0,
+            0.0,
+            (near * far) / (near - far),
+            0.0,
+        ]
+    }
+
+    fn mul_mat4(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
+        let mut r = [0.0; 16];
+
+        for col in 0..4 {
+            for row in 0..4 {
+                r[col * 4 + row] = a[0 * 4 + row] * b[col * 4 + 0]
+                    + a[1 * 4 + row] * b[col * 4 + 1]
+                    + a[2 * 4 + row] * b[col * 4 + 2]
+                    + a[3 * 4 + row] * b[col * 4 + 3];
+            }
+        }
+
+        r
+    }
+
+    fn model_matrix(t: Transform) -> [f32; 16] {
+        let sx = t.scale[0];
+        let sy = t.scale[1];
+        let sz = t.scale[2];
+
+        let px = t.position[0];
+        let py = t.position[1];
+        let pz = t.position[2];
+
+        let ry = t.rotation[1];
+        let c = ry.cos();
+        let s = ry.sin();
+
+        [
+            sx * c,
+            0.0,
+            -sz * s,
+            0.0,
+            0.0,
+            sy,
+            0.0,
+            0.0,
+            sx * s,
+            0.0,
+            sz * c,
+            0.0,
+            px,
+            py,
+            pz,
+            1.0,
+        ]
+    }
+
+    fn build_render_buffer(&mut self) {
+        self.render_buffer.clear();
+
+        for transform in &self.transforms {
+            if let Some(t) = transform {
+                let model = Self::model_matrix(*t);
+                self.render_buffer.extend_from_slice(&model);
+            }
+        }
+    }
+
+    // ===== ENTITY =====
+
+    pub fn create_entity(&mut self) -> Entity {
+        let id = self.next_entity;
+        self.next_entity += 1;
+
+        self.transforms.push(None);
+        self.velocities.push(None);
+
+        id
+    }
+
+    pub fn add_transform(&mut self, entity: Entity, px: f32, py: f32, pz: f32) {
+        self.transforms[entity as usize] = Some(Transform {
+            position: [px, py, pz],
+            rotation: [0.0, 0.0, 0.0],
+            scale: [0.5, 0.5, 0.5],
+        });
+    }
+
+    pub fn add_velocity(&mut self, entity: Entity, vx: f32, vy: f32, vz: f32) {
+        self.velocities[entity as usize] = Some(Velocity {
+            linear: [vx, vy, vz],
+        });
+    }
+
+    pub fn set_camera(
+        &mut self,
+        px: f32,
+        py: f32,
+        pz: f32,
+        fov: f32,
+        aspect: f32,
+        near: f32,
+        far: f32,
+    ) {
+        self.camera = Some(Camera {
+            position: [px, py, pz],
+            fov,
+            aspect,
+            near,
+            far,
+        });
+    }
+
+    // ===== RENDER EXTRACTION =====
+
+    pub fn render_buffer_ptr(&self) -> *const f32 {
+        self.render_buffer.as_ptr()
+    }
+
+    pub fn render_buffer_len(&self) -> usize {
+        self.render_buffer.len()
+    }
+
+    pub fn view_proj_ptr(&self) -> *const f32 {
+        self.view_proj.as_ptr()
     }
 }
