@@ -1,4 +1,5 @@
 import { initWasm } from '$lib/gfx/wasm';
+import { mat4, vec4, vec3 } from "gl-matrix";
 
 let device: GPUDevice;
 let context: GPUCanvasContext;
@@ -18,6 +19,18 @@ let engine: any;
 let memory: WebAssembly.Memory;
 
 let animationFrameId: number | null = null;
+
+let orbitYaw = 0;
+let orbitPitch = 0;
+let orbitDistance = 4;
+
+let isDragging = false;
+let lastX = 0;
+let lastY = 0;
+
+let mouseDownX = 0;
+let mouseDownY = 0;
+const CLICK_THRESHOLD = 4; // pixels
 
 function resizeCanvas(canvas: HTMLCanvasElement): boolean {
   const dpr = window.devicePixelRatio || 1;
@@ -150,14 +163,23 @@ function createPipeline(
       @location(0) normal: vec3<f32>
     ) -> @location(0) vec4<f32> {
 
-      let lightDir = normalize(vec3<f32>(-1.0, -2.0, -1.0));
-      let diffuse = max(dot(normal, -lightDir), 0.0);
+      let N = normalize(normal);
 
+      // Directional light
+      let lightDir = normalize(vec3<f32>(-1.0, -2.0, -1.0));
+      let diffuse = max(dot(N, -lightDir), 0.0);
+
+      // Lighting parameters
       let baseColor = vec3<f32>(0.2, 0.7, 1.0);
 
-      let color = baseColor * diffuse;
+      let ambientStrength = 0.15;
+      let ambient = baseColor * ambientStrength;
 
-      return vec4<f32>(color, 1.0);
+      let diffuseColor = baseColor * diffuse;
+
+      let finalColor = ambient + diffuseColor;
+
+      return vec4<f32>(finalColor, 1.0);
     }
 `
   });
@@ -212,13 +234,109 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     alphaMode: 'opaque'
   });
 
+  function performPick(clientX: number, clientY: number) {
+
+    const rect = canvas.getBoundingClientRect();
+
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+
+    // Read view-projection from Rust
+    const vpPtr = engine.view_proj_ptr();
+    const vp = new Float32Array(memory.buffer, vpPtr, 16);
+
+    // Invert VP
+    const invVP = mat4.create();
+    mat4.invert(invVP, vp);
+
+    // Create clip space points
+    const nearPoint = vec4.fromValues(ndcX, ndcY, -1, 1);
+    const farPoint = vec4.fromValues(ndcX, ndcY, 1, 1);
+
+    // Transform to world space
+    vec4.transformMat4(nearPoint, nearPoint, invVP);
+    vec4.transformMat4(farPoint, farPoint, invVP);
+
+    // Perspective divide
+    for (let i = 0; i < 3; i++) {
+      nearPoint[i] /= nearPoint[3];
+      farPoint[i] /= farPoint[3];
+    }
+
+    const rayOrigin = vec3.fromValues(
+      nearPoint[0],
+      nearPoint[1],
+      nearPoint[2]
+    );
+
+    const rayDir = vec3.create();
+    vec3.subtract(rayDir,
+      vec3.fromValues(farPoint[0], farPoint[1], farPoint[2]),
+      rayOrigin
+    );
+    vec3.normalize(rayDir, rayDir);
+
+    const hit = engine.pick(
+      rayOrigin[0],
+      rayOrigin[1],
+      rayOrigin[2],
+      rayDir[0],
+      rayDir[1],
+      rayDir[2]
+    );
+
+    console.log("Hit:", hit);
+  }
+  canvas.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    mouseDownX = e.clientX;
+    mouseDownY = e.clientY;
+  });
+
+  window.addEventListener("mouseup", (e) => {
+    if (!isDragging) return;
+
+    isDragging = false;
+
+    const dx = e.clientX - mouseDownX;
+    const dy = e.clientY - mouseDownY;
+
+    const moved = Math.sqrt(dx * dx + dy * dy);
+
+    if (moved < CLICK_THRESHOLD) {
+      performPick(e.clientX, e.clientY);
+    }
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    orbitYaw += dx * 0.005;
+    orbitPitch += dy * 0.005;
+
+    orbitPitch = Math.max(-1.5, Math.min(1.5, orbitPitch));
+  });
+
+  canvas.addEventListener("wheel", (e) => {
+    orbitDistance += e.deltaY * 0.01;
+    orbitDistance = Math.max(1.5, Math.min(20, orbitDistance));
+  });
+
   createDepthTexture();
 
   const wasm = await initWasm();
   engine = wasm.engine;
   memory = wasm.memory;
 
-  engine.set_camera(0, 6, 15, 1.2, canvas.width / canvas.height, 0.1, 100);
 
   const gridSize = 10;
   const spacing = 1.2;
@@ -290,6 +408,19 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     const delta = (now - lastTime) * 0.001;
     lastTime = now;
 
+    const x = orbitDistance * Math.cos(orbitPitch) * Math.sin(orbitYaw);
+    const y = orbitDistance * Math.sin(orbitPitch);
+    const z = orbitDistance * Math.cos(orbitPitch) * Math.cos(orbitYaw);
+
+    engine.set_camera(
+      x,
+      y,
+      z,
+      1.2,
+      canvas.width / canvas.height,
+      0.1,
+      100
+    );
     engine.update(delta);
 
     const ptr = engine.render_buffer_ptr();

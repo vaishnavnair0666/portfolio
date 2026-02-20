@@ -178,6 +178,44 @@ impl Engine {
         }
     }
 
+    fn ray_intersects_cube(ray_origin: [f32; 3], ray_dir: [f32; 3], t: Transform) -> Option<f32> {
+        let min = [
+            t.position[0] - t.scale[0],
+            t.position[1] - t.scale[1],
+            t.position[2] - t.scale[2],
+        ];
+
+        let max = [
+            t.position[0] + t.scale[0],
+            t.position[1] + t.scale[1],
+            t.position[2] + t.scale[2],
+        ];
+
+        let mut tmin = (min[0] - ray_origin[0]) / ray_dir[0];
+        let mut tmax = (max[0] - ray_origin[0]) / ray_dir[0];
+
+        if tmin > tmax {
+            std::mem::swap(&mut tmin, &mut tmax);
+        }
+
+        for i in 1..3 {
+            let mut t1 = (min[i] - ray_origin[i]) / ray_dir[i];
+            let mut t2 = (max[i] - ray_origin[i]) / ray_dir[i];
+
+            if t1 > t2 {
+                std::mem::swap(&mut t1, &mut t2);
+            }
+
+            tmin = tmin.max(t1);
+            tmax = tmax.min(t2);
+
+            if tmin > tmax {
+                return None;
+            }
+        }
+
+        Some(tmin)
+    }
     // ===== ENTITY =====
 
     pub fn create_entity(&mut self) -> Entity {
@@ -221,6 +259,28 @@ impl Engine {
             near,
             far,
         });
+    }
+    // ===== Ray Picking =====
+
+    pub fn pick(&self, ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32) -> i32 {
+        let ray_origin = [ox, oy, oz];
+        let ray_dir = [dx, dy, dz];
+
+        let mut closest = -1;
+        let mut closest_dist = f32::MAX;
+
+        for (i, transform) in self.transforms.iter().enumerate() {
+            if let Some(t) = transform {
+                if let Some(dist) = Self::ray_intersects_cube(ray_origin, ray_dir, *t) {
+                    if dist < closest_dist {
+                        closest_dist = dist;
+                        closest = i as i32;
+                    }
+                }
+            }
+        }
+
+        closest
     }
 
     // ===== RENDER EXTRACTION =====
