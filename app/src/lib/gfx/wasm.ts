@@ -1,24 +1,18 @@
 let engine: any;
-let uniforms: Float32Array;
+let memory: WebAssembly.Memory;
 
 export async function initWasm() {
   const pkg = await import('../../../../wasm/engine/pkg/engine.js');
-
   const init = pkg.default;
   const wasm = await init();
 
   const { Engine } = pkg;
-  const { memory } = wasm;
+  memory = wasm.memory;
 
   engine = new Engine();
 
-  const ptr = engine.uniforms_ptr();
-  const len = engine.uniforms_len();
-
-  uniforms = new Float32Array(memory.buffer, ptr, len);
-
   return {
-    update: (t: number) => engine.update(t),
-    uniforms
+    engine,
+    memory
   };
 }
