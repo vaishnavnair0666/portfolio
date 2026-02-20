@@ -29,6 +29,7 @@ pub struct Engine {
     delta: f32,
 
     next_entity: Entity,
+    selected: Option<Entity>,
 
     transforms: Vec<Option<Transform>>,
     velocities: Vec<Option<Velocity>>,
@@ -47,6 +48,7 @@ impl Engine {
             time: 0.0,
             delta: 0.0,
             next_entity: 0,
+            selected: None,
             transforms: Vec::new(),
             velocities: Vec::new(),
             camera: None,
@@ -170,10 +172,17 @@ impl Engine {
     fn build_render_buffer(&mut self) {
         self.render_buffer.clear();
 
-        for transform in &self.transforms {
+        for (i, transform) in self.transforms.iter().enumerate() {
             if let Some(t) = transform {
                 let model = Self::model_matrix(*t);
                 self.render_buffer.extend_from_slice(&model);
+
+                // Color (vec4)
+                if Some(i as u32) == self.selected {
+                    self.render_buffer.extend_from_slice(&[1.0, 0.3, 0.1, 1.0]); // highlight
+                } else {
+                    self.render_buffer.extend_from_slice(&[0.2, 0.7, 1.0, 1.0]); // default
+                }
             }
         }
     }
@@ -261,8 +270,7 @@ impl Engine {
         });
     }
     // ===== Ray Picking =====
-
-    pub fn pick(&self, ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32) -> i32 {
+    pub fn pick(&mut self, ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32) -> i32 {
         let ray_origin = [ox, oy, oz];
         let ray_dir = [dx, dy, dz];
 
@@ -279,6 +287,12 @@ impl Engine {
                 }
             }
         }
+
+        self.selected = if closest >= 0 {
+            Some(closest as u32)
+        } else {
+            None
+        };
 
         closest
     }
