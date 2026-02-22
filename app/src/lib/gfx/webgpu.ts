@@ -19,18 +19,13 @@ let engine: any;
 let memory: WebAssembly.Memory;
 
 let animationFrameId: number | null = null;
-
-let orbitYaw = 0;
-let orbitPitch = 0;
-let orbitDistance = 4;
-
-let isDragging = false;
+let activeEntity = -1;
 let lastX = 0;
 let lastY = 0;
-
 let mouseDownX = 0;
 let mouseDownY = 0;
-const CLICK_THRESHOLD = 4; // pixels
+let mode: "idle" | "orbit" | "potential-drag" | "drag" = "idle";
+const DRAG_THRESHOLD = 5;
 
 function resizeCanvas(canvas: HTMLCanvasElement): boolean {
   const dpr = window.devicePixelRatio || 1;
@@ -230,30 +225,25 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     alphaMode: 'opaque'
   });
 
-  function performPick(clientX: number, clientY: number) {
+  function buildRay(clientX: number, clientY: number) {
 
     const rect = canvas.getBoundingClientRect();
 
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
 
-    // Read view-projection from Rust
     const vpPtr = engine.view_proj_ptr();
     const vp = new Float32Array(memory.buffer, vpPtr, 16);
 
-    // Invert VP
     const invVP = mat4.create();
     mat4.invert(invVP, vp);
 
-    // Create clip space points
     const nearPoint = vec4.fromValues(ndcX, ndcY, -1, 1);
     const farPoint = vec4.fromValues(ndcX, ndcY, 1, 1);
 
-    // Transform to world space
     vec4.transformMat4(nearPoint, nearPoint, invVP);
     vec4.transformMat4(farPoint, farPoint, invVP);
 
-    // Perspective divide
     for (let i = 0; i < 3; i++) {
       nearPoint[i] /= nearPoint[3];
       farPoint[i] /= farPoint[3];
@@ -270,61 +260,94 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       vec3.fromValues(farPoint[0], farPoint[1], farPoint[2]),
       rayOrigin
     );
+
     vec3.normalize(rayDir, rayDir);
 
-    const hit = engine.pick(
-      rayOrigin[0],
-      rayOrigin[1],
-      rayOrigin[2],
-      rayDir[0],
-      rayDir[1],
-      rayDir[2]
-    );
-
-    console.log("Hit:", hit);
+    return { rayOrigin, rayDir };
   }
+
   canvas.addEventListener("mousedown", (e) => {
-    isDragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
+
+    engine.update(0);
+
+    const { rayOrigin, rayDir } = buildRay(e.clientX, e.clientY);
+
+    const hit = engine.pick(
+      rayOrigin[0], rayOrigin[1], rayOrigin[2],
+      rayDir[0], rayDir[1], rayDir[2],
+      e.shiftKey,
+      e.ctrlKey
+    );
 
     mouseDownX = e.clientX;
     mouseDownY = e.clientY;
-  });
+    lastX = e.clientX;
+    lastY = e.clientY;
 
-  window.addEventListener("mouseup", (e) => {
-    if (!isDragging) return;
-
-    isDragging = false;
-
-    const dx = e.clientX - mouseDownX;
-    const dy = e.clientY - mouseDownY;
-
-    const moved = Math.sqrt(dx * dx + dy * dy);
-
-    if (moved < CLICK_THRESHOLD) {
-      performPick(e.clientX, e.clientY);
+    if (hit >= 0) {
+      mode = "potential-drag";
+      activeEntity = hit;
+    } else {
+      mode = "orbit";
     }
   });
 
   window.addEventListener("mousemove", (e) => {
-    if (!isDragging) return;
 
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
+    if (mode === "orbit") {
 
-    lastX = e.clientX;
-    lastY = e.clientY;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
 
-    orbitYaw += dx * 0.005;
-    orbitPitch += dy * 0.005;
+      lastX = e.clientX;
+      lastY = e.clientY;
 
-    orbitPitch = Math.max(-1.5, Math.min(1.5, orbitPitch));
+      engine.camera_orbit(dx * 0.005, dy * 0.005);
+    }
+
+    else if (mode === "potential-drag") {
+
+      const dx = e.clientX - mouseDownX;
+      const dy = e.clientY - mouseDownY;
+
+      if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+
+        mode = "drag";
+
+        const { rayOrigin, rayDir } = buildRay(e.clientX, e.clientY);
+
+        engine.begin_drag(
+          activeEntity,
+          rayOrigin[0], rayOrigin[1], rayOrigin[2],
+          rayDir[0], rayDir[1], rayDir[2]
+        );
+      }
+    }
+
+    else if (mode === "drag") {
+
+      engine.update(0);
+
+      const { rayOrigin, rayDir } = buildRay(e.clientX, e.clientY);
+
+      engine.update_drag_ray(
+        rayOrigin[0], rayOrigin[1], rayOrigin[2],
+        rayDir[0], rayDir[1], rayDir[2]
+      );
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+
+    if (mode === "drag") {
+      engine.end_drag();
+    }
+
+    mode = "idle";
   });
 
   canvas.addEventListener("wheel", (e) => {
-    orbitDistance += e.deltaY * 0.01;
-    orbitDistance = Math.max(1.5, Math.min(20, orbitDistance));
+    engine.camera_zoom(e.deltaY * 0.01);
   });
 
   createDepthTexture();
@@ -393,6 +416,15 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   const vertexBuffer = createCubeVertexBuffer(device);
 
   let lastTime = performance.now();
+  engine.set_camera(
+    0,
+    5,
+    10,
+    1.2,
+    canvas.width / canvas.height,
+    0.1,
+    100
+  );
 
   function frame(now: number) {
 
@@ -404,19 +436,6 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     const delta = (now - lastTime) * 0.001;
     lastTime = now;
 
-    const x = orbitDistance * Math.cos(orbitPitch) * Math.sin(orbitYaw);
-    const y = orbitDistance * Math.sin(orbitPitch);
-    const z = orbitDistance * Math.cos(orbitPitch) * Math.cos(orbitYaw);
-
-    engine.set_camera(
-      x,
-      y,
-      z,
-      1.2,
-      canvas.width / canvas.height,
-      0.1,
-      100
-    );
     engine.update(delta);
 
     const ptr = engine.render_buffer_ptr();
