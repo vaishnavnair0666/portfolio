@@ -350,73 +350,42 @@ impl Engine {
         ])
     }
 
-    fn ray_intersects_cube(ray_origin: [f32; 3], ray_dir: [f32; 3], t: Transform) -> Option<f32> {
-        let min = [
-            t.position[0] - t.scale[0],
-            t.position[1] - t.scale[1],
-            t.position[2] - t.scale[2],
-        ];
-
-        let max = [
-            t.position[0] + t.scale[0],
-            t.position[1] + t.scale[1],
-            t.position[2] + t.scale[2],
-        ];
-
-        let mut tmin = (min[0] - ray_origin[0]) / ray_dir[0];
-        let mut tmax = (max[0] - ray_origin[0]) / ray_dir[0];
-
-        if tmin > tmax {
-            std::mem::swap(&mut tmin, &mut tmax);
-        }
-
-        for i in 1..3 {
-            let mut t1 = (min[i] - ray_origin[i]) / ray_dir[i];
-            let mut t2 = (max[i] - ray_origin[i]) / ray_dir[i];
-
-            if t1 > t2 {
-                std::mem::swap(&mut t1, &mut t2);
-            }
-
-            tmin = tmin.max(t1);
-            tmax = tmax.min(t2);
-
-            if tmin > tmax {
-                return None;
-            }
-        }
-
-        Some(tmin)
-    }
     // ===== ENTITY =====
     fn ray_aabb(origin: [f32; 3], dir: [f32; 3]) -> Option<f32> {
         let min = [-0.5, -0.5, -0.5];
         let max = [0.5, 0.5, 0.5];
 
-        let mut tmin = (min[0] - origin[0]) / dir[0];
-        let mut tmax = (max[0] - origin[0]) / dir[0];
+        let mut tmin = f32::NEG_INFINITY;
+        let mut tmax = f32::INFINITY;
 
-        if tmin > tmax {
-            std::mem::swap(&mut tmin, &mut tmax);
+        for i in 0..3 {
+            if dir[i].abs() < 1e-6 {
+                if origin[i] < min[i] || origin[i] > max[i] {
+                    return None;
+                }
+            } else {
+                let inv = 1.0 / dir[i];
+                let mut t1 = (min[i] - origin[i]) * inv;
+                let mut t2 = (max[i] - origin[i]) * inv;
+
+                if t1 > t2 {
+                    std::mem::swap(&mut t1, &mut t2);
+                }
+
+                tmin = tmin.max(t1);
+                tmax = tmax.min(t2);
+
+                if tmin > tmax {
+                    return None;
+                }
+            }
         }
 
-        for i in 1..3 {
-            let mut t1 = (min[i] - origin[i]) / dir[i];
-            let mut t2 = (max[i] - origin[i]) / dir[i];
-
-            if t1 > t2 {
-                std::mem::swap(&mut t1, &mut t2);
-            }
-
-            if tmin > t2 || t1 > tmax {
-                return None;
-            }
-
-            tmin = tmin.max(t1);
-            tmax = tmax.min(t2);
+        if tmax < 0.0 {
+            None
+        } else {
+            Some(tmin.max(0.0))
         }
-
-        if tmin < 0.0 { None } else { Some(tmin) }
     }
     pub fn focus_selected(&mut self) {
         if let Some(ref mut cam) = self.camera {

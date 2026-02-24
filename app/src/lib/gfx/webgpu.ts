@@ -266,6 +266,14 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     return { rayOrigin, rayDir };
   }
 
+
+  createDepthTexture();
+
+  const wasm = await initWasm();
+  engine = wasm.engine;
+  memory = wasm.memory;
+
+
   canvas.addEventListener("mousedown", (e) => {
 
     engine.update(0);
@@ -349,14 +357,6 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   canvas.addEventListener("wheel", (e) => {
     engine.camera_zoom(e.deltaY * 0.01);
   });
-
-  createDepthTexture();
-
-  const wasm = await initWasm();
-  engine = wasm.engine;
-  memory = wasm.memory;
-
-
   const gridSize = 10;
   const spacing = 1.2;
 

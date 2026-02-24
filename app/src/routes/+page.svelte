@@ -47,6 +47,7 @@
 		inset: 0;
 		width: 100vw;
 		height: 100vh;
+    z-index: -1;
 	}
 	h1 {
 		font-size: 2.5rem;
