@@ -28,6 +28,9 @@
 	<p class="resume">
 		<a href="/resume.pdf" download> Download resume </a>
 	</p>
+	<p>
+		<a href="https://github.com/vaishnavnair0666/portfolio">GITHUB</a>
+	</p>
 </main>
 
 <style>
@@ -47,7 +50,7 @@
 		inset: 0;
 		width: 100vw;
 		height: 100vh;
-    z-index: -1;
+		z-index: -1;
 	}
 	h1 {
 		font-size: 2.5rem;
