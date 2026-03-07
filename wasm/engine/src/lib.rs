@@ -1,6 +1,95 @@
 use wasm_bindgen::prelude::*;
 
-pub type Entity = u32;
+struct Storage<T> {
+    dense: Vec<T>,
+    dense_entities: Vec<u32>,
+    sparse: Vec<Option<usize>>,
+}
+impl<T> Storage<T> {
+    fn new() -> Self {
+        Self {
+            dense: Vec::new(),
+            dense_entities: Vec::new(),
+            sparse: Vec::new(),
+        }
+    }
+    fn clear(&mut self) {
+        for &entity_index in &self.dense_entities {
+            if let Some(slot) = self.sparse.get_mut(entity_index as usize) {
+                *slot = None;
+            }
+        }
+
+        self.dense.clear();
+        self.dense_entities.clear();
+    }
+    fn contains(&self, entity: Entity) -> bool {
+        self.sparse
+            .get(entity.index as usize)
+            .and_then(|o| *o)
+            .is_some()
+    }
+    fn insert(&mut self, entity: Entity, component: T) {
+        let index = entity.index as usize;
+
+        if index >= self.sparse.len() {
+            self.sparse.resize(index + 1, None);
+        }
+
+        if let Some(dense_index) = self.sparse[index] {
+            self.dense[dense_index] = component;
+            return;
+        }
+
+        let dense_index = self.dense.len();
+
+        self.dense.push(component);
+        self.dense_entities.push(entity.index);
+        self.sparse[index] = Some(dense_index);
+    }
+    fn remove_entity(&mut self, entity: Entity) {
+        let index = entity.index as usize;
+
+        if index >= self.sparse.len() {
+            return;
+        }
+
+        let Some(dense_index) = self.sparse[index] else {
+            return;
+        };
+
+        let last_dense = self.dense.len() - 1;
+
+        self.dense.swap(dense_index, last_dense);
+        self.dense_entities.swap(dense_index, last_dense);
+
+        let moved_entity = self.dense_entities[dense_index];
+        self.sparse[moved_entity as usize] = Some(dense_index);
+
+        self.dense.pop();
+        self.dense_entities.pop();
+        self.sparse[index] = None;
+    }
+    fn get_mut(&mut self, entity: Entity) -> Option<&mut T> {
+        let index = entity.index as usize;
+
+        if index >= self.sparse.len() {
+            return None;
+        }
+
+        let dense_index = self.sparse[index]?;
+        self.dense.get_mut(dense_index)
+    }
+    fn iter(&self) -> impl Iterator<Item = (u32, &T)> {
+        self.dense_entities.iter().copied().zip(self.dense.iter())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Entity {
+    index: u32,
+    generation: u32,
+}
 
 #[derive(Clone, Copy)]
 pub struct Transform {
@@ -37,15 +126,13 @@ struct DragRay {
 pub struct Engine {
     time: f32,
     delta: f32,
+    generations: Vec<u32>,
+    free_indices: Vec<u32>,
 
-    next_entity: Entity,
-
-    transforms: Vec<Option<Transform>>,
-    velocities: Vec<Option<Velocity>>,
-
-    selected: Vec<bool>,
-    dragging: Vec<bool>,
-    drag_offset: Vec<[f32; 3]>,
+    transforms: Storage<Transform>,
+    velocities: Storage<Velocity>,
+    selected: Storage<()>,
+    dragging: Storage<[f32; 3]>, // offset stored directly
     current_drag_ray: Option<DragRay>,
 
     camera: Option<Camera>,
@@ -61,13 +148,13 @@ impl Engine {
         Engine {
             time: 0.0,
             delta: 0.0,
-            next_entity: 0,
-            selected: Vec::new(),
-            dragging: Vec::new(),
-            drag_offset: Vec::new(),
+            generations: Vec::new(),
+            free_indices: Vec::new(),
+            transforms: Storage::new(),
+            velocities: Storage::new(),
+            selected: Storage::new(),
+            dragging: Storage::new(),
             current_drag_ray: None,
-            transforms: Vec::new(),
-            velocities: Vec::new(),
             camera: None,
             render_buffer: Vec::new(),
             view_proj: [0.0; 16],
@@ -78,23 +165,38 @@ impl Engine {
         self.delta = delta;
         self.time += delta;
 
+        self.update_drag_system();
         self.integrate_velocity();
         self.update_camera();
         self.build_render_buffer();
-        self.update_drag_system();
     }
 
+    fn make_entity(&self, index: u32) -> Option<Entity> {
+        let idx = index as usize;
+
+        if idx >= self.generations.len() {
+            return None;
+        }
+
+        Some(Entity {
+            index,
+            generation: self.generations[idx],
+        })
+    }
     fn integrate_velocity(&mut self) {
-        for i in 0..self.transforms.len() {
-            if let (Some(mut t), Some(v)) = (self.transforms[i], self.velocities[i]) {
-                t.position[0] += v.linear[0] * self.delta;
-                t.position[1] += v.linear[1] * self.delta;
-                t.position[2] += v.linear[2] * self.delta;
+        for (entity_index, velocity) in self.velocities.iter() {
+            let entity = Entity {
+                index: entity_index,
+                generation: self.generations[entity_index as usize],
+            };
+
+            if let Some(transform) = self.transforms.get_mut(entity) {
+                transform.position[0] += velocity.linear[0] * self.delta;
+                transform.position[1] += velocity.linear[1] * self.delta;
+                transform.position[2] += velocity.linear[2] * self.delta;
 
                 // simple Y rotation so we see real 3D
-                t.rotation[1] += self.delta;
-
-                self.transforms[i] = Some(t);
+                transform.rotation[1] += self.delta;
             }
         }
     }
@@ -313,17 +415,21 @@ impl Engine {
     fn build_render_buffer(&mut self) {
         self.render_buffer.clear();
 
-        for (i, transform) in self.transforms.iter().enumerate() {
-            if let Some(t) = transform {
-                let model = Self::model_matrix(*t);
-                self.render_buffer.extend_from_slice(&model);
+        for (entity_index, transform) in self.transforms.iter() {
+            let entity = Entity {
+                index: entity_index,
+                generation: self.generations[entity_index as usize],
+            };
 
-                // Color (vec4)
-                if self.selected[i] {
-                    self.render_buffer.extend_from_slice(&[1.0, 0.3, 0.1, 1.0]); // highlight
-                } else {
-                    self.render_buffer.extend_from_slice(&[0.2, 0.7, 1.0, 1.0]); // default
-                }
+            let model = Self::model_matrix(*transform);
+            self.render_buffer.extend_from_slice(&model);
+
+            let is_selected = self.selected.contains(entity);
+
+            if is_selected {
+                self.render_buffer.extend_from_slice(&[1.0, 0.3, 0.1, 1.0]); // highlight
+            } else {
+                self.render_buffer.extend_from_slice(&[0.2, 0.7, 1.0, 1.0]); // default
             }
         }
     }
@@ -392,14 +498,17 @@ impl Engine {
             let mut count = 0;
             let mut center = [0.0, 0.0, 0.0];
 
-            for (i, is_selected) in self.selected.iter().enumerate() {
-                if *is_selected {
-                    if let Some(t) = self.transforms[i] {
-                        center[0] += t.position[0];
-                        center[1] += t.position[1];
-                        center[2] += t.position[2];
-                        count += 1;
-                    }
+            for (entity_index, _) in self.selected.iter() {
+                let entity = Entity {
+                    index: entity_index,
+                    generation: self.generations[entity_index as usize],
+                };
+
+                if let Some(transform) = self.transforms.get_mut(entity) {
+                    center[0] += transform.position[0];
+                    center[1] += transform.position[1];
+                    center[2] += transform.position[2];
+                    count += 1;
                 }
             }
 
@@ -413,70 +522,98 @@ impl Engine {
         }
     }
 
-    pub fn create_entity(&mut self) -> Entity {
-        let id = self.next_entity;
-        self.next_entity += 1;
+    pub fn create_entity(&mut self) -> u32 {
+        if let Some(index) = self.free_indices.pop() {
+            index
+        } else {
+            let index = self.generations.len() as u32;
+            self.generations.push(0);
+            index
+        }
+    }
+    pub fn destroy_entity(&mut self, index: u32) {
+        let Some(entity) = self.make_entity(index) else {
+            return;
+        };
 
-        self.transforms.push(None);
-        self.velocities.push(None);
-        self.selected.push(false);
-        self.dragging.push(false);
-        self.drag_offset.push([0.0, 0.0, 0.0]);
+        let idx = entity.index as usize;
 
-        id
+        if self.generations[idx] != entity.generation {
+            return;
+        }
+
+        self.generations[idx] += 1;
+        self.free_indices.push(index);
+
+        self.transforms.remove_entity(entity);
+        self.velocities.remove_entity(entity);
+        self.selected.remove_entity(entity);
+        self.dragging.remove_entity(entity);
+    }
+    pub fn add_transform(&mut self, index: u32, px: f32, py: f32, pz: f32) {
+        if let Some(entity) = self.make_entity(index) {
+            self.transforms.insert(
+                entity,
+                Transform {
+                    position: [px, py, pz],
+                    rotation: [0.0, 0.0, 0.0],
+                    scale: [0.5, 0.5, 0.5],
+                },
+            );
+        }
+    }
+    pub fn add_velocity(&mut self, index: u32, vx: f32, vy: f32, vz: f32) {
+        if let Some(entity) = self.make_entity(index) {
+            self.velocities.insert(
+                entity,
+                Velocity {
+                    linear: [vx, vy, vz],
+                },
+            );
+        }
     }
 
-    pub fn begin_drag(
-        &mut self,
-        entity: u32,
-        ox: f32,
-        oy: f32,
-        oz: f32,
-        dx: f32,
-        dy: f32,
-        dz: f32,
-    ) {
+    pub fn begin_drag(&mut self, ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32) {
         let origin = [ox, oy, oz];
         let dir = [dx, dy, dz];
 
         if let Some(hit_point) = Self::ray_plane_intersection(origin, dir, 0.0) {
-            // reference position = hit_point
+            for (entity_index, _) in self.selected.iter() {
+                let entity = Entity {
+                    index: entity_index,
+                    generation: self.generations[entity_index as usize],
+                };
 
-            for (i, selected) in self.selected.iter().enumerate() {
-                if *selected {
-                    if let Some(t) = self.transforms[i] {
-                        self.dragging[i] = true;
+                if let Some(transform) = self.transforms.get_mut(entity) {
+                    let offset = [
+                        transform.position[0] - hit_point[0],
+                        transform.position[1] - hit_point[1],
+                        transform.position[2] - hit_point[2],
+                    ];
 
-                        self.drag_offset[i] = [
-                            t.position[0] - hit_point[0],
-                            t.position[1] - hit_point[1],
-                            t.position[2] - hit_point[2],
-                        ];
-                    }
+                    self.dragging.insert(entity, offset);
                 }
             }
         }
     }
     pub fn end_drag(&mut self) {
-        for i in 0..self.dragging.len() {
-            self.dragging[i] = false;
-        }
-
+        self.dragging.clear();
         self.current_drag_ray = None;
     }
 
     fn update_drag_system(&mut self) {
         if let Some(ray) = self.current_drag_ray {
             if let Some(hit_point) = Self::ray_plane_intersection(ray.origin, ray.dir, 0.0) {
-                for i in 0..self.transforms.len() {
-                    if self.dragging[i] {
-                        if let Some(mut t) = self.transforms[i] {
-                            t.position[0] = hit_point[0] + self.drag_offset[i][0];
-                            t.position[1] = hit_point[1] + self.drag_offset[i][1];
-                            t.position[2] = hit_point[2] + self.drag_offset[i][2];
+                for (entity_index, offset) in self.dragging.iter() {
+                    let entity = Entity {
+                        index: entity_index,
+                        generation: self.generations[entity_index as usize],
+                    };
 
-                            self.transforms[i] = Some(t);
-                        }
+                    if let Some(transform) = self.transforms.get_mut(entity) {
+                        transform.position[0] = hit_point[0] + offset[0];
+                        transform.position[1] = hit_point[1] + offset[1];
+                        transform.position[2] = hit_point[2] + offset[2];
                     }
                 }
             }
@@ -486,20 +623,6 @@ impl Engine {
         self.current_drag_ray = Some(DragRay {
             origin: [ox, oy, oz],
             dir: [dx, dy, dz],
-        });
-    }
-
-    pub fn add_transform(&mut self, entity: Entity, px: f32, py: f32, pz: f32) {
-        self.transforms[entity as usize] = Some(Transform {
-            position: [px, py, pz],
-            rotation: [0.0, 0.0, 0.0],
-            scale: [0.5, 0.5, 0.5],
-        });
-    }
-
-    pub fn add_velocity(&mut self, entity: Entity, vx: f32, vy: f32, vz: f32) {
-        self.velocities[entity as usize] = Some(Velocity {
-            linear: [vx, vy, vz],
         });
     }
 
@@ -555,41 +678,50 @@ impl Engine {
         let origin = [ox, oy, oz];
         let dir = [dx, dy, dz];
 
-        let mut closest = -1;
+        let mut closest_entity: Option<Entity> = None;
         let mut closest_t = f32::MAX;
 
-        for (i, transform) in self.transforms.iter().enumerate() {
-            if let Some(t) = transform {
-                let inv_model = Self::invert_model(*t);
+        // Iterate only entities with Transform
+        for (entity_index, transform) in self.transforms.iter() {
+            let entity = Entity {
+                index: entity_index,
+                generation: self.generations[entity_index as usize],
+            };
 
-                let local_origin = Self::transform_point(inv_model, origin);
-                let local_dir = Self::transform_dir(inv_model, dir);
+            let inv_model = Self::invert_model(*transform);
 
-                if let Some(t_hit) = Self::ray_aabb(local_origin, local_dir) {
-                    if t_hit < closest_t {
-                        closest_t = t_hit;
-                        closest = i as i32;
-                    }
+            let local_origin = Self::transform_point(inv_model, origin);
+            let local_dir = Self::transform_dir(inv_model, dir);
+
+            if let Some(t_hit) = Self::ray_aabb(local_origin, local_dir) {
+                if t_hit < closest_t {
+                    closest_t = t_hit;
+                    closest_entity = Some(entity);
                 }
             }
         }
 
-        if closest >= 0 {
-            let idx = closest as usize;
+        if let Some(entity) = closest_entity {
+            let is_selected = self.selected.contains(entity);
 
             if toggle {
-                self.selected[idx] = !self.selected[idx];
-            } else if additive {
-                self.selected[idx] = true;
-            } else {
-                // normal click: clear everything then select one
-                for s in self.selected.iter_mut() {
-                    *s = false;
+                if is_selected {
+                    self.selected.remove_entity(entity);
+                } else {
+                    self.selected.insert(entity, ());
                 }
-                self.selected[idx] = true;
+            } else if additive {
+                self.selected.insert(entity, ());
+            } else {
+                // Clear previous selection
+                self.selected.clear();
+                self.selected.insert(entity, ());
             }
+
+            return entity.index as i32;
         }
-        closest
+
+        -1
     }
 
     // ===== RENDER EXTRACTION =====

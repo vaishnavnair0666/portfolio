@@ -325,7 +325,6 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
         const { rayOrigin, rayDir } = buildRay(e.clientX, e.clientY);
 
         engine.begin_drag(
-          activeEntity,
           rayOrigin[0], rayOrigin[1], rayOrigin[2],
           rayDir[0], rayDir[1], rayDir[2]
         );
