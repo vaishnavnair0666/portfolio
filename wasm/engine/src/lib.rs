@@ -80,6 +80,16 @@ impl<T> Storage<T> {
         let dense_index = self.sparse[index]?;
         self.dense.get_mut(dense_index)
     }
+    fn get(&self, entity: Entity) -> Option<&T> {
+        let index = entity.index as usize;
+
+        if index >= self.sparse.len() {
+            return None;
+        }
+
+        let dense_index = self.sparse[index]?;
+        self.dense.get(dense_index)
+    }
     fn iter(&self) -> impl Iterator<Item = (u32, &T)> {
         self.dense_entities.iter().copied().zip(self.dense.iter())
     }
@@ -90,7 +100,10 @@ pub struct Entity {
     index: u32,
     generation: u32,
 }
-
+#[derive(Clone, Copy)]
+pub struct Color {
+    pub rgb: [f32; 3],
+}
 #[derive(Clone, Copy)]
 pub struct Transform {
     pub position: [f32; 3],
@@ -126,9 +139,10 @@ struct DragRay {
 pub struct Engine {
     time: f32,
     delta: f32,
+    static_objects: Storage<()>,
     generations: Vec<u32>,
     free_indices: Vec<u32>,
-
+    colors: Storage<Color>,
     transforms: Storage<Transform>,
     velocities: Storage<Velocity>,
     selected: Storage<()>,
@@ -148,8 +162,10 @@ impl Engine {
         Engine {
             time: 0.0,
             delta: 0.0,
+            static_objects: Storage::new(),
             generations: Vec::new(),
             free_indices: Vec::new(),
+            colors: Storage::new(),
             transforms: Storage::new(),
             velocities: Storage::new(),
             selected: Storage::new(),
@@ -161,6 +177,12 @@ impl Engine {
         }
     }
 
+    pub fn entity_count(&self) -> usize {
+        self.transforms.dense.len()
+    }
+    pub fn selected_count(&self) -> usize {
+        self.selected.dense.len()
+    }
     pub fn update(&mut self, delta: f32) {
         self.delta = delta;
         self.time += delta;
@@ -183,20 +205,55 @@ impl Engine {
             generation: self.generations[idx],
         })
     }
+    pub fn set_static(&mut self, index: u32) {
+        if let Some(entity) = self.make_entity(index) {
+            self.static_objects.insert(entity, ());
+        }
+    }
+    pub fn set_position(&mut self, index: u32, x: f32, y: f32, z: f32) {
+        if let Some(entity) = self.make_entity(index) {
+            if let Some(transform) = self.transforms.get_mut(entity) {
+                transform.position = [x, y, z];
+            }
+        }
+    }
+    pub fn set_scale(&mut self, index: u32, sx: f32, sy: f32, sz: f32) {
+        if let Some(entity) = self.make_entity(index) {
+            if let Some(t) = self.transforms.get_mut(entity) {
+                t.scale = [sx, sy, sz];
+            }
+        }
+    }
+    pub fn add_color(&mut self, index: u32, r: f32, g: f32, b: f32) {
+        if let Some(entity) = self.make_entity(index) {
+            self.colors.insert(entity, Color { rgb: [r, g, b] });
+        }
+    }
+    pub fn set_selected_color(&mut self, r: f32, g: f32, b: f32) {
+        for (entity_index, _) in self.selected.iter() {
+            let entity = Entity {
+                index: entity_index,
+                generation: self.generations[entity_index as usize],
+            };
+
+            if let Some(color) = self.colors.get_mut(entity) {
+                color.rgb = [r, g, b];
+            }
+        }
+    }
     fn integrate_velocity(&mut self) {
         for (entity_index, velocity) in self.velocities.iter() {
             let entity = Entity {
                 index: entity_index,
                 generation: self.generations[entity_index as usize],
             };
-
+            if self.static_objects.contains(entity) {
+                continue;
+            }
             if let Some(transform) = self.transforms.get_mut(entity) {
                 transform.position[0] += velocity.linear[0] * self.delta;
                 transform.position[1] += velocity.linear[1] * self.delta;
                 transform.position[2] += velocity.linear[2] * self.delta;
-
-                // simple Y rotation so we see real 3D
-                transform.rotation[1] += self.delta;
             }
         }
     }
@@ -424,13 +481,20 @@ impl Engine {
             let model = Self::model_matrix(*transform);
             self.render_buffer.extend_from_slice(&model);
 
-            let is_selected = self.selected.contains(entity);
-
-            if is_selected {
-                self.render_buffer.extend_from_slice(&[1.0, 0.3, 0.1, 1.0]); // highlight
+            let mut color = if let Some(c) = self.colors.get(entity) {
+                [c.rgb[0], c.rgb[1], c.rgb[2], 1.0]
             } else {
-                self.render_buffer.extend_from_slice(&[0.2, 0.7, 1.0, 1.0]); // default
+                [0.2, 0.7, 1.0, 1.0] // fallback default
+            };
+
+            if self.selected.contains(entity) {
+                // brighten selected cubes slightly
+                color[0] = (color[0] + 0.3).min(1.0);
+                color[1] = (color[1] + 0.3).min(1.0);
+                color[2] = (color[2] + 0.3).min(1.0);
             }
+
+            self.render_buffer.extend_from_slice(&color);
         }
     }
 
@@ -550,13 +614,22 @@ impl Engine {
         self.selected.remove_entity(entity);
         self.dragging.remove_entity(entity);
     }
-    pub fn add_transform(&mut self, index: u32, px: f32, py: f32, pz: f32) {
+    pub fn add_transform(
+        &mut self,
+        index: u32,
+        px: f32,
+        py: f32,
+        pz: f32,
+        rx: f32,
+        ry: f32,
+        rz: f32,
+    ) {
         if let Some(entity) = self.make_entity(index) {
             self.transforms.insert(
                 entity,
                 Transform {
                     position: [px, py, pz],
-                    rotation: [0.0, 0.0, 0.0],
+                    rotation: [rx, ry, rz],
                     scale: [0.5, 0.5, 0.5],
                 },
             );
@@ -583,7 +656,9 @@ impl Engine {
                     index: entity_index,
                     generation: self.generations[entity_index as usize],
                 };
-
+                if self.static_objects.contains(entity) {
+                    continue;
+                }
                 if let Some(transform) = self.transforms.get_mut(entity) {
                     let offset = [
                         transform.position[0] - hit_point[0],

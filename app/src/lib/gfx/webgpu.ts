@@ -16,6 +16,7 @@ let cameraBindGroup: GPUBindGroup;
 let depthTexture: GPUTexture;
 
 let engine: any;
+export let engineAPI: any = null
 let memory: WebAssembly.Memory;
 
 let animationFrameId: number | null = null;
@@ -122,17 +123,24 @@ function createPipeline(
       model: mat4x4<f32>,
       color: vec4<f32>,
     };
-
+    struct Light {
+      direction: vec3<f32>,
+      padding: f32
+    };
     @group(0) @binding(0)
     var<storage, read> models: array<Model>;
 
     @group(1) @binding(0)
     var<uniform> view_proj: mat4x4<f32>;
 
+    @group(1) @binding(1)
+    var<uniform> light: Light;
+
     struct VSOut {
       @builtin(position) pos: vec4<f32>,
       @location(0) normal: vec3<f32>,
       @location(1) color: vec4<f32>,
+      @location(2) world_pos: vec3<f32>,
     };
 
     @vertex
@@ -149,6 +157,7 @@ function createPipeline(
 
       let world = modelMatrix * vec4<f32>(in_pos, 1.0);
       out.pos = view_proj * world;
+      out.world_pos = world.xyz;
 
       let normalWorld = (modelMatrix * vec4<f32>(in_normal, 0.0)).xyz;
       out.normal = normalize(normalWorld);
@@ -159,20 +168,54 @@ function createPipeline(
     @fragment
     fn fs_main(
       @location(0) normal: vec3<f32>,
-      @location(1) color: vec4<f32>
+      @location(1) color: vec4<f32>,
+      @location(2) world_pos: vec3<f32>
     ) -> @location(0) vec4<f32> {
 
       let N = normalize(normal);
-      let lightDir = normalize(vec3<f32>(-1.0, -2.0, -1.0));
+      let lightDir = normalize(light.direction);
+
+      if (color.r > 0.9 && color.g > 0.8 && color.b < 0.5) {
+        return vec4<f32>(color.rgb * 1.4, 1.0);
+      }
+      // ----- LIGHTING -----
+      let ambient = 0.35;
       let diffuse = max(dot(N, -lightDir), 0.0);
+      let rim = pow(1.0 - max(dot(N, vec3<f32>(0.0,1.0,0.0)),0.0),2.0) * 0.15;
+      let lighting = ambient + diffuse * 0.7 + rim;
+      var finalColor = color.rgb * lighting;
 
-      let ambient = 0.2;
+      // ----- CONTACT SHADOW -----
+      let shadow = smoothstep(1.2, 0.0, world_pos.y);
+      finalColor = mix(finalColor, finalColor * 0.6, shadow * 0.25);
 
-      let finalColor = color.rgb * (ambient + diffuse);
+      // ----- GRID FLOOR -----
+      if (N.y > 0.95) {
+        let minor = 1.0;
+        let major = 5.0;
+
+        let gx = abs(fract(world_pos.x / minor) - 0.5);
+        let gz = abs(fract(world_pos.z / minor) - 0.5);
+
+        let gMinor = min(gx, gz);
+
+        let gx2 = abs(fract(world_pos.x / major) - 0.5);
+        let gz2 = abs(fract(world_pos.z / major) - 0.5);
+
+        let gMajor = min(gx2, gz2);
+
+        if (gMinor < 0.02) {
+          finalColor *= 0.85;
+        }
+
+        if (gMajor < 0.03) {
+          finalColor = vec3<f32>(0.1,0.1,0.1);
+        }
+      }
 
       return vec4<f32>(finalColor, 1.0);
     }
-`
+    `
   });
 
   const layout = device.createPipelineLayout({
@@ -225,6 +268,24 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     alphaMode: 'opaque'
   });
 
+
+
+  createDepthTexture();
+
+  const wasm = await initWasm();
+  engine = wasm.engine;
+  memory = wasm.memory;
+
+  engineAPI = {
+    setColor: (r: number, g: number, b: number) => engine.set_selected_color(r, g, b),
+
+    orbit: (dx: number, dy: number) => {
+      engine.camera_orbit(dx, dy)
+    },
+    getObjectCount: () => engine.entity_count(),
+    getSelectedCount: () => engine.selected_count()
+  }
+
   function buildRay(clientX: number, clientY: number) {
 
     const rect = canvas.getBoundingClientRect();
@@ -265,19 +326,15 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
 
     return { rayOrigin, rayDir };
   }
-
-
-  createDepthTexture();
-
-  const wasm = await initWasm();
-  engine = wasm.engine;
-  memory = wasm.memory;
-
-
-  canvas.addEventListener("mousedown", (e) => {
+  canvas.addEventListener("pointerdown", (e) => {
 
     engine.update(0);
 
+    if (mode === "orbit") {
+      if (e.pointerType === "mouse") {
+        canvas.requestPointerLock();
+      }
+    }
     const { rayOrigin, rayDir } = buildRay(e.clientX, e.clientY);
 
     const hit = engine.pick(
@@ -300,15 +357,12 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     }
   });
 
-  window.addEventListener("mousemove", (e) => {
+  window.addEventListener("pointermove", (e) => {
 
     if (mode === "orbit") {
 
-      const dx = e.clientX - lastX;
-      const dy = e.clientY - lastY;
-
-      lastX = e.clientX;
-      lastY = e.clientY;
+      const dx = e.movementX;
+      const dy = e.movementY;
 
       engine.camera_orbit(dx * 0.005, dy * 0.005);
     }
@@ -344,18 +398,34 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     }
   });
 
-  window.addEventListener("mouseup", () => {
+  window.addEventListener("pointerup", () => {
 
     if (mode === "drag") {
       engine.end_drag();
     }
-
+    document.exitPointerLock();
     mode = "idle";
   });
 
   canvas.addEventListener("wheel", (e) => {
     engine.camera_zoom(e.deltaY * 0.01);
   });
+
+  // generate objects
+  const ground = engine.create_entity()
+
+  engine.add_transform(
+    ground,
+    0, -1, 0,
+    0, 0, 0
+  )
+
+  engine.set_scale(ground, 80, 0.1, 80)
+
+  engine.add_color(ground, 0.35, 0.37, 0.40)
+  engine.set_static(ground)
+  const sun = engine.create_entity();
+
   const gridSize = 10;
   const spacing = 1.2;
 
@@ -367,8 +437,13 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       const px = (x - gridSize / 2) * spacing;
       const pz = (z - gridSize / 2) * spacing;
 
-      engine.add_transform(e, px, 0, pz);
-
+      engine.add_transform(e, px, 0.6, pz, 0.0, 0.0, 0.0);
+      engine.add_color(
+        e,
+        0.3 + Math.random() * 0.2,
+        0.8 + Math.random() * 0.1,
+        0.3 + Math.random() * 0.2
+      )
       // optional: slight movement or none
       engine.add_velocity(e, 0.0, 0.0, 0.0);
     }
@@ -378,7 +453,10 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     size: 1024 * 64,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
   });
-
+  const lightBuffer = device.createBuffer({
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
   cameraUniformBuffer = device.createBuffer({
     size: 64,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -397,6 +475,11 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       binding: 0,
       visibility: GPUShaderStage.VERTEX,
       buffer: { type: 'uniform' }
+    },
+    {
+      binding: 1,
+      visibility: GPUShaderStage.FRAGMENT,
+      buffer: { type: 'uniform' }
     }]
   });
 
@@ -407,7 +490,10 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
 
   cameraBindGroup = device.createBindGroup({
     layout: cameraLayout,
-    entries: [{ binding: 0, resource: { buffer: cameraUniformBuffer } }]
+    entries: [
+      { binding: 0, resource: { buffer: cameraUniformBuffer } },
+      { binding: 1, resource: { buffer: lightBuffer } }
+    ]
   });
 
   pipeline = createPipeline(modelLayout, cameraLayout);
@@ -449,6 +535,38 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       renderData.byteOffset,
       renderData.byteLength
     );
+    const t = now * 0.0003;
+
+    const lightDir = [
+      Math.sin(t),
+      -1.8,
+      Math.cos(t)
+    ];
+
+    const sun_dist = Math.hypot(...lightDir);
+    const dir = lightDir.map(v => v / sun_dist);
+    const sunDistance = 12;
+    const sunPos = [
+      -dir[0] * sunDistance,
+      -dir[1] * sunDistance,
+      -dir[2] * sunDistance
+    ];
+    engine.add_transform(
+      sun,
+      sunPos[0],
+      sunPos[1],
+      sunPos[2],
+      0, 0, 0
+    );
+
+    engine.set_scale(sun, 0.8, 0.8, 0.8);
+    engine.add_color(sun, 1.0, 0.9, 0.3);
+    engine.set_static(sun);
+    device.queue.writeBuffer(
+      lightBuffer,
+      0,
+      new Float32Array([dir[0], dir[1], dir[2], 0])
+    );
 
     const vpPtr = engine.view_proj_ptr();
     const vpData = new Float32Array(memory.buffer, vpPtr, 16);
@@ -462,15 +580,13 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
     );
 
     const instanceCount = len / 20;
-
     const encoder = device.createCommandEncoder();
-
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
         view: context.getCurrentTexture().createView(),
         loadOp: 'clear',
         storeOp: 'store',
-        clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 }
+        clearValue: { r: 0.70, g: 0.82, b: 0.92, a: 1 }
       }],
       depthStencilAttachment: {
         view: depthTexture.createView(),
