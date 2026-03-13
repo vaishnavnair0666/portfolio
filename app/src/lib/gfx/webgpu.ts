@@ -29,7 +29,7 @@ let mode: "idle" | "orbit" | "potential-drag" | "drag" = "idle";
 const DRAG_THRESHOLD = 5;
 
 function resizeCanvas(canvas: HTMLCanvasElement): boolean {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   const w = Math.floor(window.innerWidth * dpr);
   const h = Math.floor(window.innerHeight * dpr);
 
@@ -167,10 +167,17 @@ function createPipeline(
 
     @fragment
     fn fs_main(
+      @builtin(position) frag_pos: vec4<f32>,
       @location(0) normal: vec3<f32>,
       @location(1) color: vec4<f32>,
       @location(2) world_pos: vec3<f32>
     ) -> @location(0) vec4<f32> {
+
+      // SKY GRADIENT
+      let skyTop = vec3<f32>(0.55, 0.75, 0.95);
+      let skyHorizon = vec3<f32>(0.85, 0.92, 1.0);
+      let t = clamp(frag_pos.y / 800.0, 0.0, 1.0);
+      let skyColor = mix(skyHorizon, skyTop, t);
 
       let N = normalize(normal);
       let lightDir = normalize(light.direction);
@@ -189,30 +196,7 @@ function createPipeline(
       let shadow = smoothstep(1.2, 0.0, world_pos.y);
       finalColor = mix(finalColor, finalColor * 0.6, shadow * 0.25);
 
-      // ----- GRID FLOOR -----
-      if (N.y > 0.95) {
-        let minor = 1.0;
-        let major = 5.0;
-
-        let gx = abs(fract(world_pos.x / minor) - 0.5);
-        let gz = abs(fract(world_pos.z / minor) - 0.5);
-
-        let gMinor = min(gx, gz);
-
-        let gx2 = abs(fract(world_pos.x / major) - 0.5);
-        let gz2 = abs(fract(world_pos.z / major) - 0.5);
-
-        let gMajor = min(gx2, gz2);
-
-        if (gMinor < 0.02) {
-          finalColor *= 0.85;
-        }
-
-        if (gMajor < 0.03) {
-          finalColor = vec3<f32>(0.1,0.1,0.1);
-        }
-      }
-
+      finalColor = mix(finalColor, skyColor, 0.05);
       return vec4<f32>(finalColor, 1.0);
     }
     `
@@ -390,11 +374,15 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       engine.update(0);
 
       const { rayOrigin, rayDir } = buildRay(e.clientX, e.clientY);
+      let lastDragUpdate = 0;
 
-      engine.update_drag_ray(
-        rayOrigin[0], rayOrigin[1], rayOrigin[2],
-        rayDir[0], rayDir[1], rayDir[2]
-      );
+      if (performance.now() - lastDragUpdate > 16) {
+        lastDragUpdate = performance.now();
+        engine.update_drag_ray(
+          rayOrigin[0], rayOrigin[1], rayOrigin[2],
+          rayDir[0], rayDir[1], rayDir[2]
+        );
+      }
     }
   });
 
@@ -425,6 +413,11 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
   engine.add_color(ground, 0.35, 0.37, 0.40)
   engine.set_static(ground)
   const sun = engine.create_entity();
+  const sunDistance = 12;
+  const lightData = new Float32Array(4);
+  engine.set_scale(sun, 0.8, 0.8, 0.8);
+  engine.add_color(sun, 1.0, 0.9, 0.3);
+  engine.set_static(sun);
 
   const gridSize = 10;
   const spacing = 1.2;
@@ -518,23 +511,6 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       createDepthTexture();
     }
 
-    const delta = (now - lastTime) * 0.001;
-    lastTime = now;
-
-    engine.update(delta);
-
-    const ptr = engine.render_buffer_ptr();
-    const len = engine.render_buffer_len();
-
-    const renderData = new Float32Array(memory.buffer, ptr, len);
-
-    device.queue.writeBuffer(
-      modelStorageBuffer,
-      0,
-      renderData.buffer,
-      renderData.byteOffset,
-      renderData.byteLength
-    );
     const t = now * 0.0003;
 
     const lightDir = [
@@ -545,7 +521,6 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
 
     const sun_dist = Math.hypot(...lightDir);
     const dir = lightDir.map(v => v / sun_dist);
-    const sunDistance = 12;
     const sunPos = [
       -dir[0] * sunDistance,
       -dir[1] * sunDistance,
@@ -558,16 +533,33 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
       sunPos[2],
       0, 0, 0
     );
-
-    engine.set_scale(sun, 0.8, 0.8, 0.8);
-    engine.add_color(sun, 1.0, 0.9, 0.3);
-    engine.set_static(sun);
+    lightData[0] = dir[0];
+    lightData[1] = dir[1];
+    lightData[2] = dir[2];
+    lightData[3] = 0;
     device.queue.writeBuffer(
       lightBuffer,
       0,
-      new Float32Array([dir[0], dir[1], dir[2], 0])
+      lightData
     );
+    engine.camera_orbit(0.0003, 0);
+    const delta = (now - lastTime) * 0.001;
+    lastTime = now;
 
+
+    const ptr = engine.render_buffer_ptr();
+    const len = engine.render_buffer_len();
+
+    const renderData = new Float32Array(memory.buffer, ptr, len);
+
+    engine.update(delta);
+    device.queue.writeBuffer(
+      modelStorageBuffer,
+      0,
+      renderData.buffer,
+      renderData.byteOffset,
+      renderData.byteLength
+    );
     const vpPtr = engine.view_proj_ptr();
     const vpData = new Float32Array(memory.buffer, vpPtr, 16);
 
