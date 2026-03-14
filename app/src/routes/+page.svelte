@@ -12,12 +12,14 @@
 	let objects = 0;
 	let selected = 0;
 
-	const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+	const isMobile = navigator.maxTouchPoints > 0;
 
 	function start(e: PointerEvent) {
 		e.preventDefault();
 
 		const el = e.currentTarget as HTMLElement;
+
+		el.setPointerCapture(e.pointerId);
 
 		dragging = true;
 		lastX = e.clientX;
@@ -48,8 +50,11 @@
 		engineAPI?.orbit(dx * 0.005, dy * 0.005);
 	}
 
-	function end() {
+	function end(e: PointerEvent) {
 		dragging = false;
+
+		const el = e.currentTarget as HTMLElement;
+		el.releasePointerCapture(e.pointerId);
 
 		if (!isMobile) {
 			document.exitPointerLock();
@@ -70,9 +75,6 @@
 
 		document.addEventListener('pointerlockchange', lockChange);
 
-		window.addEventListener('pointermove', move);
-		window.addEventListener('pointerup', end);
-
 		interval = window.setInterval(() => {
 			if (engineAPI) {
 				objects = engineAPI.getObjectCount();
@@ -82,11 +84,7 @@
 
 		return () => {
 			cleanup?.();
-
 			document.removeEventListener('pointerlockchange', lockChange);
-			window.removeEventListener('pointermove', move);
-			window.removeEventListener('pointerup', end);
-
 			clearInterval(interval);
 		};
 	});
@@ -105,13 +103,6 @@
 		Building web experiences using systems programming and modern browser technologies.
 	</p>
 
-	<div class="palette ui-interactive">
-		<button on:click={() => engineAPI.setColor(1, 0.4, 0.4)}>Red</button>
-		<button on:click={() => engineAPI.setColor(0.4, 1, 0.4)}>Green</button>
-		<button on:click={() => engineAPI.setColor(0.4, 0.4, 1)}>Blue</button>
-		<button on:click={() => engineAPI.setColor(1, 1, 0.4)}>Yellow</button>
-	</div>
-
 	<div class="stats">
 		Objects: {objects}
 		Selected: {selected}
@@ -123,18 +114,28 @@
 		</p>
 	</div>
 	<div class="buttons ui-interactive">
-		<a href="#projects">View Projects</a>
 		<a href="https://github.com/vaishnavnair0666">GitHub</a>
 		<a href="/resume.pdf">Resume</a>
 	</div>
 
-	<div
-		class="orbit-pad ui-interactive"
-		on:pointerdown={start}
-		on:pointermove={move}
-		on:pointerup={end}
-		on:pointerleave={end}
-	></div>
+	<div class="palette ui-interactive">
+		<button on:click={() => engineAPI.setColor(1, 0.4, 0.4)}>Red</button>
+		<button on:click={() => engineAPI.setColor(0.4, 1, 0.4)}>Green</button>
+		<button on:click={() => engineAPI.setColor(0.4, 0.4, 1)}>Blue</button>
+		<button on:click={() => engineAPI.setColor(1, 1, 0.4)}>Yellow</button>
+	</div>
+	<div class="orbit-container ui-interactive">
+		<div class="orbit-hint">Drag to rotate camera</div>
+
+		<div
+			class="orbit-pad"
+			on:pointerdown={start}
+			on:pointermove={move}
+			on:pointerup={end}
+			on:pointerleave={end}
+			on:pointercancel={end}
+		></div>
+	</div>
 </main>
 
 <style>
@@ -150,6 +151,7 @@
 		width: 100vw;
 		height: 100vh;
 		z-index: 0;
+		touch-action: none;
 	}
 
 	.ui {
@@ -195,15 +197,34 @@
 		font-size: 13px;
 		pointer-events: none;
 	}
-	.orbit-pad {
+	.orbit-container {
 		position: fixed;
 		bottom: 30px;
 		right: 30px;
 
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+
+		gap: 8px;
+	}
+	.orbit-hint {
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.75);
+
+		background: rgba(0, 0, 0, 0.35);
+		backdrop-filter: blur(6px);
+
+		padding: 4px 8px;
+		border-radius: 5px;
+
+		pointer-events: none;
+	}
+	.orbit-pad {
 		width: 120px;
 		height: 120px;
 
-		border-radius: 12px;
+		border-radius: 10px;
 
 		background: rgba(255, 255, 255, 0.08);
 		backdrop-filter: blur(6px);
@@ -213,6 +234,12 @@
 		user-select: none;
 		-webkit-user-select: none;
 		touch-action: none;
+
+		display: flex;
+		align-items: center;
+		justify-content: center;
+
+		border: 1px solid rgba(255, 255, 255, 0.15);
 	}
 
 	.orbit-pad:active {
