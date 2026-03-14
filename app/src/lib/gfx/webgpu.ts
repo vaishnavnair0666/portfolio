@@ -291,7 +291,7 @@ export async function startWebGPU(canvas: HTMLCanvasElement) {
 
   engineAPI = {
     setColor: (r: number, g: number, b: number) => engine.set_selected_color(r, g, b),
-
+    moveY: (delta: number) => engine.move_selected_y(delta),
     orbit: (dx: number, dy: number) => {
       engine.camera_orbit(dx, dy)
     },

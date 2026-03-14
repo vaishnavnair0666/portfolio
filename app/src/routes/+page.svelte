@@ -107,7 +107,7 @@
 		Objects: {objects}
 		Selected: {selected}
 	</div>
-	<div class="controls">
+	<div class="controlsHint">
 		<p>
 			🔷 Drag cubes to move them, 🔷 Ctrl + click to multi-select, 🔷 Use the orbit pad to rotate
 			the camera, 🔷 Scroll to zoom.
@@ -123,7 +123,29 @@
 		<button on:click={() => engineAPI.setColor(0.4, 1, 0.4)}>Green</button>
 		<button on:click={() => engineAPI.setColor(0.4, 0.4, 1)}>Blue</button>
 		<button on:click={() => engineAPI.setColor(1, 1, 0.4)}>Yellow</button>
+		<label class="color-button">
+			Pick
+			<input
+				type="color"
+				on:input={(e) => {
+					const input = e.target as HTMLInputElement;
+
+					const hex = input.value;
+
+					const r = parseInt(hex.slice(1, 3), 16) / 255;
+					const g = parseInt(hex.slice(3, 5), 16) / 255;
+					const b = parseInt(hex.slice(5, 7), 16) / 255;
+
+					engineAPI?.setColor(r, g, b);
+				}}
+			/>
+		</label>
 	</div>
+	<!-- <div class="controls"> -->
+	<!-- 	<button on:click={() => engineAPI?.moveY(0.5)}> Raise </button> -->
+	<!---->
+	<!-- 	<button on:click={() => engineAPI?.moveY(-0.5)}> Lower </button> -->
+	<!-- </div> -->
 	<div class="orbit-container ui-interactive">
 		<div class="orbit-hint">Drag to rotate camera</div>
 
@@ -134,7 +156,9 @@
 			on:pointerup={end}
 			on:pointerleave={end}
 			on:pointercancel={end}
-		></div>
+		>
+			<div class="orbit-icon">🔄</div>
+		</div>
 	</div>
 </main>
 
@@ -144,7 +168,16 @@
 		user-select: none;
 		-webkit-user-select: none;
 	}
+	.content {
+		z-index: 1;
+		max-width: 48rem;
+		margin: 5rem auto;
+		padding: 0 1.25rem;
 
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
 	.gfx-canvas {
 		position: fixed;
 		inset: 0;
@@ -177,26 +210,30 @@
 	}
 
 	h1 {
-		color: aliceblue;
+		color: #050505;
 		font-size: 2.5rem;
 		margin-bottom: 1rem;
 	}
 
 	p {
-		color: aliceblue;
+		color: #050505;
 	}
 
 	.stats {
-		color: aliceblue;
+		font-size: 14px;
+		color: #050505;
 	}
-	.controls {
+	.controlsHint {
 		position: fixed;
 		bottom: 20px;
 		left: 20px;
-		color: rgba(255, 255, 255, 0.7);
+		color: rgba(25, 25, 25, 0.7);
 		font-size: 13px;
 		pointer-events: none;
 	}
+	/* .controls { */
+	/* 	pointer-events: auto; */
+	/* } */
 	.orbit-container {
 		position: fixed;
 		bottom: 30px;
@@ -212,7 +249,7 @@
 		font-size: 12px;
 		color: rgba(255, 255, 255, 0.75);
 
-		background: rgba(0, 0, 0, 0.35);
+		background: rgba(4, 2, 3, 0.35);
 		backdrop-filter: blur(6px);
 
 		padding: 4px 8px;
@@ -226,7 +263,7 @@
 
 		border-radius: 10px;
 
-		background: rgba(255, 255, 255, 0.08);
+		background: rgba(023, 042, 003, 0.08);
 		backdrop-filter: blur(6px);
 
 		cursor: grab;
@@ -239,26 +276,96 @@
 		align-items: center;
 		justify-content: center;
 
-		border: 1px solid rgba(255, 255, 255, 0.15);
+		border: 1px solid rgba(042, 69, 67, 0.15);
 	}
 
 	.orbit-pad:active {
 		cursor: grabbing;
 	}
+	.orbit-icon {
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 28px;
+		pointer-events: none;
+	}
+	.palette {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		pointer-events: auto;
+	}
 
 	.palette button,
+	.color-button,
 	.buttons a {
 		background: rgba(255, 255, 255, 0.1);
 		color: white;
 		border: none;
 		padding: 8px 12px;
-		margin-right: 6px;
 		border-radius: 6px;
 		cursor: pointer;
+		font-size: 14px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.palette button:hover,
+	.color-button:hover,
 	.buttons a:hover {
 		background: rgba(255, 255, 255, 0.2);
+	}
+
+	@media (max-width: 768px) {
+		.content {
+			margin: 2rem auto;
+			padding: 0 1rem;
+		}
+		h1 {
+			font-size: 2rem;
+		}
+		.tagline {
+			font-size: 1rem;
+		}
+		.tech {
+			font-size: 0.9rem;
+		}
+		.orbit-pad {
+			width: 150px;
+			height: 150px;
+		}
+		.buttons {
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+		}
+		.buttons a {
+			text-align: center;
+		}
+		.controlsHint {
+			font-size: 12px;
+		}
+		.palette {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 8px;
+			justify-content: center;
+		}
+		.palette button,
+		.color-button {
+			flex: 1 1 calc(50% - 8px);
+			min-width: 100px;
+			padding: 10px 12px;
+			font-size: 14px;
+		}
+		.color-button {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.palette button,
+		.color-button,
+		.buttons a {
+			padding: 10px 14px;
+		}
 	}
 </style>

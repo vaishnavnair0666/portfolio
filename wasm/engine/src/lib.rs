@@ -635,6 +635,18 @@ impl Engine {
             );
         }
     }
+    pub fn move_selected_y(&mut self, delta: f32) {
+        for (entity_index, _) in self.selected.iter() {
+            let entity = Entity {
+                index: entity_index,
+                generation: self.generations[entity_index as usize],
+            };
+
+            if let Some(transform) = self.transforms.get_mut(entity) {
+                transform.position[1] += delta;
+            }
+        }
+    }
     pub fn add_velocity(&mut self, index: u32, vx: f32, vy: f32, vz: f32) {
         if let Some(entity) = self.make_entity(index) {
             self.velocities.insert(
