@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { startWebGPU, engineAPI } from '$lib/gfx/webgpu';
-
+	let showControls = false;
 	let canvas: HTMLCanvasElement;
 
 	let locked = false;
@@ -118,34 +118,38 @@
 		<a href="/resume.pdf">Resume</a>
 	</div>
 
-	<div class="palette ui-interactive">
-		<button on:click={() => engineAPI.setColor(1, 0.4, 0.4)}>Red</button>
-		<button on:click={() => engineAPI.setColor(0.4, 1, 0.4)}>Green</button>
-		<button on:click={() => engineAPI.setColor(0.4, 0.4, 1)}>Blue</button>
-		<button on:click={() => engineAPI.setColor(1, 1, 0.4)}>Yellow</button>
-		<label class="color-button">
-			Pick
-			<input
-				type="color"
-				on:input={(e) => {
-					const input = e.target as HTMLInputElement;
+	<button class="tool-toggle ui-interactive" on:click={() => (showControls = !showControls)}>
+		⚙
+	</button>
+	{#if showControls}
+		<div class="tool-panel ui-interactive">
+			<h3>Controls</h3>
 
-					const hex = input.value;
+			<div class="control-group">
+				<label class="color-button">
+					Pick Color
+					<input
+						type="color"
+						on:input={(e) => {
+							const input = e.target as HTMLInputElement;
+							const hex = input.value;
 
-					const r = parseInt(hex.slice(1, 3), 16) / 255;
-					const g = parseInt(hex.slice(3, 5), 16) / 255;
-					const b = parseInt(hex.slice(5, 7), 16) / 255;
+							const r = parseInt(hex.slice(1, 3), 16) / 255;
+							const g = parseInt(hex.slice(3, 5), 16) / 255;
+							const b = parseInt(hex.slice(5, 7), 16) / 255;
 
-					engineAPI?.setColor(r, g, b);
-				}}
-			/>
-		</label>
-	</div>
-	<!-- <div class="controls"> -->
-	<!-- 	<button on:click={() => engineAPI?.moveY(0.5)}> Raise </button> -->
-	<!---->
-	<!-- 	<button on:click={() => engineAPI?.moveY(-0.5)}> Lower </button> -->
-	<!-- </div> -->
+							engineAPI?.setColor(r, g, b);
+						}}
+					/>
+				</label>
+			</div>
+
+			<div class="control-group">
+				<button on:click={() => engineAPI.moveY(0.3)}>⬆️ Raise</button>
+				<button on:click={() => engineAPI.moveY(-0.3)}>⬇️ Lower</button>
+			</div>
+		</div>
+	{/if}
 	<div class="orbit-container ui-interactive">
 		<div class="orbit-hint">Drag to rotate camera</div>
 
@@ -260,22 +264,16 @@
 	.orbit-pad {
 		width: 120px;
 		height: 120px;
-
 		border-radius: 10px;
-
 		background: rgba(023, 042, 003, 0.08);
 		backdrop-filter: blur(6px);
-
 		cursor: grab;
-
 		user-select: none;
 		-webkit-user-select: none;
 		touch-action: none;
-
 		display: flex;
 		align-items: center;
 		justify-content: center;
-
 		border: 1px solid rgba(042, 69, 67, 0.15);
 	}
 
@@ -287,32 +285,66 @@
 		font-size: 28px;
 		pointer-events: none;
 	}
-	.palette {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-		pointer-events: auto;
+	.tool-toggle {
+		position: fixed;
+		top: 20px;
+		right: 20px;
+		z-index: 10;
+
+		background: rgba(255, 255, 255, 0.1);
+		border: none;
+		color: black;
+		padding: 10px 14px;
+		border-radius: 8px;
+		cursor: pointer;
+		backdrop-filter: blur(10px);
 	}
 
-	.palette button,
-	.color-button,
-	.buttons a {
+	.tool-panel {
+		position: fixed;
+		top: 70px;
+		right: 20px;
+
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+
+		background: rgba(20, 20, 25, 0.7);
+		backdrop-filter: blur(12px);
+
+		padding: 14px;
+		border-radius: 10px;
+
+		width: 180px;
+	}
+
+	.control-group {
+		display: flex;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+
+	.tool-panel button,
+	.color-button {
 		background: rgba(255, 255, 255, 0.1);
 		color: white;
 		border: none;
 		padding: 8px 12px;
 		border-radius: 6px;
 		cursor: pointer;
-		font-size: 14px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
+		font-size: 13px;
 	}
 
-	.palette button:hover,
-	.color-button:hover,
-	.buttons a:hover {
+	.tool-panel button:hover,
+	.color-button:hover {
 		background: rgba(255, 255, 255, 0.2);
+	}
+
+	.color-button input {
+		position: absolute;
+		opacity: 0;
+		width: 0;
+		height: 0;
 	}
 
 	@media (max-width: 768px) {
@@ -344,28 +376,15 @@
 		.controlsHint {
 			font-size: 12px;
 		}
-		.palette {
-			display: flex;
-			flex-wrap: wrap;
-			gap: 8px;
-			justify-content: center;
+		.tool-panel {
+			right: 10px;
+			bottom: 60px;
+			width: 160px;
 		}
-		.palette button,
-		.color-button {
-			flex: 1 1 calc(50% - 8px);
-			min-width: 100px;
-			padding: 10px 12px;
-			font-size: 14px;
-		}
-		.color-button {
-			display: flex;
-			align-items: center;
-			justify-content: center;
-		}
-		.palette button,
-		.color-button,
-		.buttons a {
-			padding: 10px 14px;
+
+		.tool-toggle {
+			right: 10px;
+			bottom: 10px;
 		}
 	}
 </style>
